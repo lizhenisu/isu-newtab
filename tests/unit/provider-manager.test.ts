@@ -9,6 +9,8 @@ function coordinator() {
     run: vi.fn().mockResolvedValue(undefined),
     schedule: vi.fn(),
     setMode: vi.fn().mockResolvedValue(undefined),
+    deactivate: vi.fn().mockResolvedValue(undefined),
+    activateSelected: vi.fn().mockResolvedValue(undefined),
     resolveConflict: vi.fn().mockResolvedValue(undefined),
   } as unknown as SyncCoordinator;
 }
@@ -22,12 +24,12 @@ describe('SyncProviderManager', () => {
       get: vi.fn().mockResolvedValue({ state: 'idle', updatedAt: new Date().toISOString() } satisfies SyncStatusRecord),
       set: vi.fn(), setConflict: vi.fn(), clearConflict: vi.fn(),
     };
-    const manager = new SyncProviderManager({ getSyncMode: vi.fn(async () => mode) }, { chrome, 'google-drive': drive }, status);
+    const manager = new SyncProviderManager({ getSyncMode: vi.fn(async () => mode), setSyncMode: vi.fn(async (next) => { mode = next; }) }, { chrome, 'google-drive': drive }, status);
 
     await manager.setMode('google-drive');
 
-    expect(chrome.run).toHaveBeenCalledOnce();
-    expect(drive.setMode).toHaveBeenCalledWith('google-drive');
+    expect(chrome.deactivate).toHaveBeenCalledOnce();
+    expect(drive.activateSelected).toHaveBeenCalledOnce();
   });
 
   it('does not leave the active provider when its final sync fails', async () => {
@@ -37,9 +39,21 @@ describe('SyncProviderManager', () => {
       get: vi.fn().mockResolvedValue({ state: 'error', updatedAt: new Date().toISOString() } satisfies SyncStatusRecord),
       set: vi.fn(), setConflict: vi.fn(), clearConflict: vi.fn(),
     };
-    const manager = new SyncProviderManager({ getSyncMode: vi.fn().mockResolvedValue('chrome') }, { chrome, 'google-drive': drive }, status);
+    const manager = new SyncProviderManager({ getSyncMode: vi.fn().mockResolvedValue('chrome'), setSyncMode: vi.fn() }, { chrome, 'google-drive': drive }, status);
 
-    await expect(manager.setMode('google-drive')).rejects.toThrow('FINAL_SYNC_REQUIRED');
-    expect(drive.setMode).not.toHaveBeenCalled();
+    await manager.setMode('google-drive');
+    expect(drive.activateSelected).toHaveBeenCalledOnce();
+  });
+
+  it('allows an explicit local-data confirmation to switch providers after failure', async () => {
+    const chrome = coordinator();
+    const drive = coordinator();
+    const status: SyncStatusStore = {
+      get: vi.fn().mockResolvedValue({ state: 'error', updatedAt: new Date().toISOString() } satisfies SyncStatusRecord),
+      set: vi.fn(), setConflict: vi.fn(), clearConflict: vi.fn(),
+    };
+    const manager = new SyncProviderManager({ getSyncMode: vi.fn().mockResolvedValue('chrome'), setSyncMode: vi.fn() }, { chrome, 'google-drive': drive }, status);
+    await manager.setMode('google-drive', true);
+    expect(drive.activateSelected).toHaveBeenCalledOnce();
   });
 });
