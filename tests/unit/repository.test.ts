@@ -318,6 +318,16 @@ describe('repository', () => {
     expect(snapshot.syncMode).toBe('chrome');
   });
 
+  it('keeps oversized notes local and resumes their outbox when shortened', async () => {
+    const repository = new AppRepository();
+    await repository.initialize();
+    await repository.updateQuickNote('x'.repeat(10_241));
+    expect((await repository.getConfig()).quickNote?.value).toHaveLength(10_241);
+    expect((await repository.getOutbox()).some((entry) => entry.entityType === 'quickNote')).toBe(false);
+    await repository.updateQuickNote('short note');
+    expect((await repository.getOutbox()).some((entry) => entry.entityType === 'quickNote')).toBe(true);
+  });
+
   it('does not create a remote outbox operation for a local uploaded wallpaper', async () => {
     const repository = new AppRepository();
     await repository.initialize();
