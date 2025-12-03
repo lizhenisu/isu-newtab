@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialConfig } from '../../core/domain/defaults';
-import type { DeviceIdentity, SyncEnvelope } from '../../core/domain/types';
+import { QUICK_NOTE_SYNC_LIMIT_BYTES, quickNoteByteLength, type DeviceIdentity, type SyncEnvelope } from '../../core/domain/types';
 import { applySyncProjection, createEnvelope, mergeEnvelopes, mergeThreeWay } from '../../core/sync/engine';
 
 function identity(deviceId: string, counter = 0): DeviceIdentity {
@@ -8,6 +8,24 @@ function identity(deviceId: string, counter = 0): DeviceIdentity {
 }
 
 describe('sync engine', () => {
+  it('syncs UTF-8 notes up to 10KB and omits oversized notes', () => {
+    const config = createInitialConfig(identity('a'));
+    const exact = '中'.repeat(Math.floor(QUICK_NOTE_SYNC_LIMIT_BYTES / 3));
+    config.quickNote = { value: exact, revision: { counter: 2, deviceId: 'a' } };
+    expect(quickNoteByteLength(exact)).toBeLessThanOrEqual(QUICK_NOTE_SYNC_LIMIT_BYTES);
+    expect(createEnvelope(config, { tombstones: [] }, { counter: 2, deviceId: 'a' }, 0).config.quickNote?.value).toBe(exact);
+    config.quickNote.value += '超';
+    expect(quickNoteByteLength(config.quickNote.value)).toBeGreaterThan(QUICK_NOTE_SYNC_LIMIT_BYTES);
+    expect(createEnvelope(config, { tombstones: [] }, { counter: 3, deviceId: 'a' }, 0).config.quickNote).toBeUndefined();
+  });
+
+  it('keeps a local oversized note when applying a remote snapshot without one', () => {
+    const local = createInitialConfig(identity('a'));
+    local.quickNote = { value: 'x'.repeat(QUICK_NOTE_SYNC_LIMIT_BYTES + 1), revision: { counter: 5, deviceId: 'a' } };
+    const remote = createInitialConfig(identity('b'));
+    const projected = createEnvelope(remote, { tombstones: [] }, { counter: 2, deviceId: 'b' }, 0).config;
+    expect(applySyncProjection(local, projected).quickNote?.value).toBe(local.quickNote.value);
+  });
   it('never projects a local uploaded wallpaper', () => {
     const device = identity('a');
     const config = createInitialConfig(device);
