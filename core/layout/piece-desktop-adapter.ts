@@ -135,6 +135,9 @@ function appendNode(snapshot: DesktopSnapshot, node: DesktopNode): DesktopSnapsh
 function layoutOptions(geometry?: DesktopCollisionGeometry): PieceLayoutOptions {
   if (!geometry) return {};
   return {
+    collisionRect(pieceId, position) {
+      return collisionRectFor(pieceIdToDesktopKey(pieceId), pieceToWidget(position), geometry);
+    },
     overlaps(leftId, left, rightId, right) {
       const leftRect = collisionRectFor(pieceIdToDesktopKey(leftId), pieceToWidget(left), geometry);
       const rightRect = collisionRectFor(pieceIdToDesktopKey(rightId), pieceToWidget(right), geometry);
