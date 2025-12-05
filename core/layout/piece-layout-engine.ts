@@ -24,11 +24,15 @@ export type PieceCollisionIntentSession = {
 };
 export type PieceLayoutResult = { pieces: Piece[]; movedPieceIds: string[] };
 export type PieceDragLayoutResult = PieceLayoutResult & { contacts: Map<string, PieceDragDirection> };
+export type PieceCollisionRect = { left: number; right: number; top: number; bottom: number };
 
 /** Pure runtime collision data supplied by callers. The solver itself never
  * reads the DOM, React state, or persisted storage. */
 export type PieceLayoutOptions = {
   overlaps?: (leftId: string, left: PiecePosition, rightId: string, right: PiecePosition) => boolean;
+  /** Resolves the same runtime rectangle used by collision detection so
+   * direction derivation never falls back to unrelated visual centres. */
+  collisionRect?: (pieceId: string, position: PiecePosition) => PieceCollisionRect | undefined;
   /** Runtime-only directions retained while an active piece continuously
    * pushes a blocker. These contacts are never part of persisted Piece data. */
   contacts?: PiecePushContacts;
@@ -94,11 +98,14 @@ export class PieceLayoutEngine {
       ...fixed.map((piece) => ({ id: piece.id, position: piece.position })),
     ]);
 
-    const blockerDirections = new Map(blockers.map((blocker) => [
-      blocker.id,
-      options.contacts?.get(blocker.id)
-        ?? deriveRelativePushDirection(activePosition, blocker.position, active.position, direction),
-    ]));
+    const blockerDirections = new Map(blockers.map((blocker) => {
+      const rectangles = resolveCollisionRectangles(activeId, activePosition, blocker.id, blocker.position, active.position, options);
+      return [
+        blocker.id,
+        options.contacts?.get(blocker.id)
+          ?? deriveRelativePushDirection(activePosition, blocker.position, active.position, direction, rectangles),
+      ];
+    }));
     const preferredDirections = blockers.map((blocker) => blockerDirections.get(blocker.id)!);
     const allowRigidPush = preferredDirections.every((candidate) => sameDirection(candidate, preferredDirections[0]));
     for (const pushDirections of orderedDirectionMaps(blockers, blockerDirections)) {
@@ -199,7 +206,7 @@ export function resolvePieceCollisionIntentSession(
   target: PiecePosition,
   previous?: PieceCollisionIntentSession,
   now = 0,
-  options: Pick<PieceLayoutOptions, 'overlaps'> = {},
+  options: Pick<PieceLayoutOptions, 'overlaps' | 'collisionRect'> = {},
 ): PieceCollisionIntentSession | undefined {
   const active = snapshot.find((piece): piece is Piece & { position: PiecePosition } => piece.id === activeId
     && piece.container.kind === 'desktop' && Boolean(piece.position));
@@ -268,12 +275,17 @@ export function updatePiecePushContacts(
       && options.collisionIntent.blockers.some((state) => state.id === blocker.id && state.mode === 'protected')) continue;
     const overlaps = overlapsWith(blocker.id, blocker.position, activeId, activePosition, options);
     const previousDirection = previousContacts.get(blocker.id);
-    if (overlaps && previousDirection && retainsPushContact(activePosition, blocker.position, previousDirection)) {
+    const rectangles = resolveCollisionRectangles(activeId, activePosition, blocker.id, blocker.position, active.position, options);
+    if (overlaps && previousDirection && retainsPushContact(
+      rectangles.active,
+      rectangles.blocker,
+      previousDirection,
+    )) {
       contacts.set(blocker.id, previousDirection);
       continue;
     }
     if (overlaps) {
-      contacts.set(blocker.id, deriveRelativePushDirection(activePosition, blocker.position, active.position));
+      contacts.set(blocker.id, deriveRelativePushDirection(activePosition, blocker.position, active.position, { x: 0, y: 1 }, rectangles));
     }
   }
   return contacts;
@@ -289,33 +301,55 @@ export function deriveRelativePushDirection(
   blocker: PiecePosition,
   previousActive?: PiecePosition,
   fallback: PieceDragDirection = { x: 0, y: 1 },
+  rectangles?: { active: PieceCollisionRect; blocker: PieceCollisionRect; previousActive?: PieceCollisionRect },
 ): PieceDragDirection {
-  const activeCenter = centerOf(active);
-  const blockerCenter = centerOf(blocker);
-  const delta = { x: activeCenter.x - blockerCenter.x, y: activeCenter.y - blockerCenter.y };
-  const previousDelta = previousActive ? {
-    x: centerOf(previousActive).x - blockerCenter.x,
-    y: centerOf(previousActive).y - blockerCenter.y,
-  } : { x: 0, y: 0 };
-  const overlap = {
-    x: overlapLength(active.x, active.x + active.width, blocker.x, blocker.x + blocker.width),
-    y: overlapLength(active.y, active.y + active.height, blocker.y, blocker.y + blocker.height),
-  };
+  const activeRect = rectangles?.active ?? positionRect(active);
+  const blockerRect = rectangles?.blocker ?? positionRect(blocker);
+  const previousRect = rectangles?.previousActive ?? (previousActive ? positionRect(previousActive) : undefined);
+  return deriveCollisionPushDirection(activeRect, blockerRect, previousRect, fallback);
+}
 
-  let axis: 'x' | 'y';
-  if (Math.abs(delta.x) > Math.abs(delta.y)) axis = 'x';
-  else if (Math.abs(delta.y) > Math.abs(delta.x)) axis = 'y';
-  else if (overlap.x < overlap.y) axis = 'x';
-  else if (overlap.y < overlap.x) axis = 'y';
-  else if (Math.abs(previousDelta.x) > Math.abs(previousDelta.y)) axis = 'x';
-  else if (Math.abs(previousDelta.y) > Math.abs(previousDelta.x)) axis = 'y';
-  else if (fallback.x !== 0) axis = 'x';
-  else axis = 'y';
+/** Derives the force on a blocker from the occupied part of its quadrants.
+ * Coordinates follow the board: x grows rightward and y grows downward. */
+export function deriveCollisionPushDirection(
+  active: PieceCollisionRect,
+  blocker: PieceCollisionRect,
+  previousActive?: PieceCollisionRect,
+  fallback: PieceDragDirection = { x: 0, y: 1 },
+): PieceDragDirection {
+  const intersection = intersectRects(active, blocker);
+  if (!intersection) return directionFromPreviousPosition(active, blocker, fallback);
 
-  const value = axis === 'x' ? (delta.x || previousDelta.x || fallback.x) : (delta.y || previousDelta.y || fallback.y);
-  if (value === 0) return { x: 0, y: 1 };
-  if (axis === 'x') return { x: value > 0 ? -1 : 1, y: 0 };
-  return { x: 0, y: value > 0 ? -1 : 1 };
+  const blockerCenter = rectCenter(blocker);
+  const crossesVerticalAxis = intersection.left < blockerCenter.x && intersection.right > blockerCenter.x;
+  const crossesHorizontalAxis = intersection.top < blockerCenter.y && intersection.bottom > blockerCenter.y;
+
+  // Occupying both lower or both upper quadrants is an unambiguous vertical
+  // contact, regardless of how far the active piece's own centre is away.
+  if (crossesVerticalAxis && !crossesHorizontalAxis) {
+    return { x: 0, y: rectCenter(intersection).y >= blockerCenter.y ? -1 : 1 };
+  }
+  // The symmetric rule applies to the left and right quadrant pairs.
+  if (crossesHorizontalAxis && !crossesVerticalAxis) {
+    return { x: rectCenter(intersection).x >= blockerCenter.x ? -1 : 1, y: 0 };
+  }
+  // A deep overlap crossing both axes has no unique current entry side. The
+  // drag-start rectangle is stable across frames and therefore wins here.
+  if (crossesVerticalAxis && crossesHorizontalAxis) {
+    return directionFromPreviousPosition(previousActive, blocker, fallback);
+  }
+
+  const blockerWidth = blocker.right - blocker.left;
+  const blockerHeight = blocker.bottom - blocker.top;
+  const overlapWidth = intersection.right - intersection.left;
+  const overlapHeight = intersection.bottom - intersection.top;
+  const intersectionCenter = rectCenter(intersection);
+  // Resolve along the shallower normalized penetration axis. Comparing the
+  // cross products avoids division while assigning equal penetration vertically.
+  if (blockerWidth * overlapHeight <= blockerHeight * overlapWidth) {
+    return { x: 0, y: intersectionCenter.y >= blockerCenter.y ? -1 : 1 };
+  }
+  return { x: intersectionCenter.x >= blockerCenter.x ? -1 : 1, y: 0 };
 }
 
 export function buildPieceOccupancyIndex(items: OccupancyItem[]): OccupancyIndex {
@@ -543,7 +577,83 @@ function bottomVacancy(position: PiecePosition, index: OccupancyIndex, columns: 
 }
 
 function overlapsWith(leftId: string, left: PiecePosition, rightId: string, right: PiecePosition, options: PieceLayoutOptions): boolean {
+  if (options.collisionRect) {
+    const leftRect = options.collisionRect(leftId, left);
+    const rightRect = options.collisionRect(rightId, right);
+    if (leftRect && rightRect) return Boolean(intersectRects(leftRect, rightRect));
+  }
   return options.overlaps?.(leftId, left, rightId, right) ?? piecePositionsOverlap(left, right);
+}
+
+function resolveCollisionRectangles(
+  activeId: string,
+  active: PiecePosition,
+  blockerId: string,
+  blocker: PiecePosition,
+  previousActive: PiecePosition | undefined,
+  options: PieceLayoutOptions,
+): { active: PieceCollisionRect; blocker: PieceCollisionRect; previousActive?: PieceCollisionRect } {
+  const activeRect = options.collisionRect?.(activeId, active);
+  const blockerRect = options.collisionRect?.(blockerId, blocker);
+  // Never mix pixel-space runtime geometry with logical grid coordinates.
+  // Incomplete captured geometry falls back as a pair.
+  if (!activeRect || !blockerRect) {
+    return {
+      active: positionRect(active),
+      blocker: positionRect(blocker),
+      ...(previousActive ? { previousActive: positionRect(previousActive) } : {}),
+    };
+  }
+  const previousRect = previousActive ? options.collisionRect?.(activeId, previousActive) : undefined;
+  return {
+    active: activeRect,
+    blocker: blockerRect,
+    ...(previousRect ? { previousActive: previousRect } : {}),
+  };
+}
+
+function positionRect(position: PiecePosition): PieceCollisionRect {
+  return { left: position.x, right: position.x + position.width, top: position.y, bottom: position.y + position.height };
+}
+
+function intersectRects(left: PieceCollisionRect, right: PieceCollisionRect): PieceCollisionRect | undefined {
+  const intersection = {
+    left: Math.max(left.left, right.left),
+    right: Math.min(left.right, right.right),
+    top: Math.max(left.top, right.top),
+    bottom: Math.min(left.bottom, right.bottom),
+  };
+  return intersection.left < intersection.right && intersection.top < intersection.bottom ? intersection : undefined;
+}
+
+function rectCenter(rect: PieceCollisionRect): { x: number; y: number } {
+  return { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 };
+}
+
+function directionFromPreviousPosition(
+  previousActive: PieceCollisionRect | undefined,
+  blocker: PieceCollisionRect,
+  fallback: PieceDragDirection,
+): PieceDragDirection {
+  if (!previousActive) return normalizedDirection(fallback);
+  const previousCenter = rectCenter(previousActive);
+  const blockerCenter = rectCenter(blocker);
+  if (previousActive.bottom <= blockerCenter.y) return { x: 0, y: 1 };
+  if (previousActive.top >= blockerCenter.y) return { x: 0, y: -1 };
+  if (previousActive.right <= blockerCenter.x) return { x: 1, y: 0 };
+  if (previousActive.left >= blockerCenter.x) return { x: -1, y: 0 };
+
+  const normalizedX = (previousCenter.x - blockerCenter.x) / Math.max(1, blocker.right - blocker.left);
+  const normalizedY = (previousCenter.y - blockerCenter.y) / Math.max(1, blocker.bottom - blocker.top);
+  if (Math.abs(normalizedX) > Math.abs(normalizedY)) return { x: normalizedX > 0 ? -1 : 1, y: 0 };
+  if (Math.abs(normalizedY) > 0) return { x: 0, y: normalizedY > 0 ? -1 : 1 };
+  return normalizedDirection(fallback);
+}
+
+function normalizedDirection(direction: PieceDragDirection): PieceDragDirection {
+  if (direction.x !== 0) return { x: direction.x, y: 0 };
+  if (direction.y !== 0) return { x: 0, y: direction.y };
+  return { x: 0, y: 1 };
 }
 
 function compareRepairPriority(left: Piece, right: Piece): number {
@@ -614,16 +724,16 @@ function translate(position: PiecePosition, direction: PieceDragDirection, dista
   return { ...position, x: position.x + direction.x * distance, y: position.y + direction.y * distance };
 }
 
-function retainsPushContact(active: PiecePosition, blocker: PiecePosition, direction: PieceDragDirection): boolean {
+function retainsPushContact(active: PieceCollisionRect, blocker: PieceCollisionRect, direction: PieceDragDirection): boolean {
   if (direction.x !== 0) {
-    const sharesRows = overlapLength(active.y, active.y + active.height, blocker.y, blocker.y + blocker.height) > 0;
+    const sharesRows = overlapLength(active.top, active.bottom, blocker.top, blocker.bottom) > 0;
     if (!sharesRows) return false;
-    return active.x + active.width > blocker.x && active.x < blocker.x + blocker.width;
+    return active.right > blocker.left && active.left < blocker.right;
   }
   if (direction.y !== 0) {
-    const sharesColumns = overlapLength(active.x, active.x + active.width, blocker.x, blocker.x + blocker.width) > 0;
+    const sharesColumns = overlapLength(active.left, active.right, blocker.left, blocker.right) > 0;
     if (!sharesColumns) return false;
-    return active.y + active.height > blocker.y && active.y < blocker.y + blocker.height;
+    return active.bottom > blocker.top && active.top < blocker.bottom;
   }
   return false;
 }
