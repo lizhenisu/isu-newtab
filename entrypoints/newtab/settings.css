@@ -43,7 +43,10 @@
 .modal--drawer .modalHeader .iconButton::before { display: none; }
 .modal--drawer .modalHeader .iconButton:hover { border: 0; background: #f1f3f4; transform: none; box-shadow: none; }
 
-.modal--drawer .settings { gap: 16px; }
+.modal--drawer .settings {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
 .modal--drawer .settings section,
 .modal--drawer .settings section:first-child {
   gap: 16px;
@@ -251,7 +254,10 @@
 .modal--drawer .syncDriveError { color: #b3261e !important; }
 .modal--drawer .conflictBox { border-color: #f6aea9; background: #fff; }
 
-.modal--drawer .backupActions { display: grid !important; }
+.modal--drawer .backupActions {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr);
+}
 .modal--drawer .softwareInfoSettings { gap: 12px !important; }
 .modal--drawer .softwareInfoList { display: grid; gap: 0; margin: 0; border: 1px solid #e0e3e7; border-radius: 12px; overflow: hidden; }
 .modal--drawer .softwareInfoList > div { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 48px; padding: 8px 13px; border-bottom: 1px solid #eef0f2; }
@@ -270,7 +276,7 @@
 .modal--drawer .thirdPartyServiceList dd { min-width: 0; margin: 0; color: #202124; font-size: 13px; text-align: right; }
 .modal--drawer .thirdPartyServiceList a { overflow-wrap: anywhere; color: #1a73e8; text-decoration: none; }
 .modal--drawer .thirdPartyServiceList a:hover { text-decoration: underline; }
-.modal--drawer .backupActionGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.modal--drawer .backupActionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .modal--drawer .backupActionGrid button:last-child { grid-column: 1 / -1; }
 
 .modal--drawer .errorText { margin: 0; padding: 10px 12px; border-radius: 10px; color: #b3261e; background: #fce8e6; font-size: 12px; line-height: 1.45; }
@@ -280,4 +286,5 @@
   .modal--drawer .modalHeader { margin-inline: -14px; padding-inline: 16px; }
   .modal--drawer .settings section,
   .modal--drawer .settings section:first-child { padding: 15px; }
+  .modal--drawer .backupActionGrid { grid-template-columns: minmax(0, 1fr); }
 }
