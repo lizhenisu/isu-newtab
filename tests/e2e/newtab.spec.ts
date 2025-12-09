@@ -508,6 +508,93 @@ test('keeps an adjacent piece fixed while dragging its neighbor across it', asyn
   await page.mouse.up();
 });
 
+test('pushes a row of blockers upward when a wide note enters from below', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  const serviceWorker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'pieces'], 'readwrite');
+    const configStore = transaction.objectStore('config');
+    const request = configStore.get('current');
+    const config = await new Promise<any>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const revision = { counter: 9_150, deviceId: 'wide-note-force-e2e' };
+    config.appearance.widgetLayout.value.forEach((item: { id: string; enabled: boolean; position?: unknown; sizePreset?: string }) => {
+      item.enabled = item.id === 'quickNote';
+      if (item.id === 'quickNote') {
+        item.sizePreset = 'large';
+        item.position = { column: 6, row: 12, width: 36, height: 9, gridVersion: 3 };
+      }
+    });
+    config.groups = config.groups.filter((group: { id: string }) => group.id !== 'force-folder');
+    config.groups.push({ id: 'force-folder', name: 'Force folder', collapsed: false, sortKey: 'z-force', revision, position: { column: 8, row: 8, width: 4, height: 3, gridVersion: 3 } });
+    config.shortcuts = [-8, 0, 8].map((x, index) => ({
+      id: `force-${index}`, groupId: 'default', name: `Force ${index}`, url: `https://example.com/${index}`,
+      sortKey: `force-${index}`, revision, position: { column: x + 24, row: 8, width: 4, height: 3, gridVersion: 3 },
+    }));
+    const pieces = transaction.objectStore('pieces');
+    pieces.clear();
+    pieces.put({ id: 'piece:widget:quickNote', kind: 'system-widget', payloadRef: 'quickNote', container: { kind: 'desktop' }, position: { x: -18, y: 12, width: 36, height: 9 }, sizePreset: 'large', revision });
+    pieces.put({ id: 'piece:folder:force-folder', kind: 'folder', payloadRef: 'force-folder', container: { kind: 'desktop' }, position: { x: -16, y: 8, width: 4, height: 3 }, revision });
+    for (const [index, x] of [-8, 0, 8].entries()) {
+      pieces.put({ id: `piece:shortcut:force-${index}`, kind: 'shortcut', payloadRef: `force-${index}`, container: { kind: 'desktop' }, position: { x, y: 8, width: 4, height: 3 }, revision });
+    }
+    configStore.put(config, 'current');
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+    database.close();
+  });
+  await page.reload();
+
+  const active = page.locator('[data-piece-id="piece:widget:quickNote"]');
+  const blockerIds = ['piece:folder:force-folder', 'piece:shortcut:force-0', 'piece:shortcut:force-1', 'piece:shortcut:force-2'];
+  const initial = await Promise.all(blockerIds.map(async (id) => page.locator(`[data-piece-id="${id}"]`).evaluate((element) => ({
+    column: getComputedStyle(element).gridColumnStart,
+    row: Number(getComputedStyle(element).gridRowStart),
+  }))));
+  const activeBox = await active.boundingBox();
+  if (!activeBox) throw new Error('Wide note was not measurable');
+  await page.mouse.move(activeBox.x + activeBox.width / 2, activeBox.y + 5);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  await page.mouse.move(activeBox.x + activeBox.width / 2, activeBox.y - 75, { steps: 8 });
+  await page.waitForTimeout(650);
+
+  for (const [index, id] of blockerIds.entries()) {
+    const blocker = page.locator(`[data-piece-id="${id}"]`);
+    await expect(blocker).toHaveClass(/isDisplaced/);
+    const placement = await blocker.evaluate((element) => ({
+      column: getComputedStyle(element).gridColumnStart,
+      row: Number(getComputedStyle(element).gridRowStart),
+    }));
+    expect(placement.column).toBe(initial[index]!.column);
+    expect(placement.row).toBeLessThan(initial[index]!.row);
+  }
+  await page.mouse.up();
+  await expect(page.locator('.pieceBoard')).not.toHaveClass(/reflowPreview/);
+  for (const [index, id] of blockerIds.entries()) {
+    await expect(page.locator(`[data-piece-id="${id}"]`)).toHaveCSS('grid-column-start', initial[index]!.column);
+    await expect.poll(() => page.locator(`[data-piece-id="${id}"]`).evaluate((element) => Number(getComputedStyle(element).gridRowStart))).toBeLessThan(initial[index]!.row);
+  }
+  await page.reload();
+  for (const [index, id] of blockerIds.entries()) {
+    await expect(page.locator(`[data-piece-id="${id}"]`)).toHaveCSS('grid-column-start', initial[index]!.column);
+    await expect.poll(() => page.locator(`[data-piece-id="${id}"]`).evaluate((element) => Number(getComputedStyle(element).gridRowStart))).toBeLessThan(initial[index]!.row);
+  }
+});
+
 test('lets a horizontally adjacent piece cross to a free vertical side', async () => {
   if (!context) throw new Error('Browser context was not created');
   let serviceWorker = context.serviceWorkers()[0];
@@ -2593,6 +2680,28 @@ test('switches the new interface languages without reloading the new tab', async
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await expect(page).toHaveTitle(title);
     await expect(drawer.locator('.modalHeader h2')).toHaveText(settings);
+  }
+});
+
+test('keeps the settings drawer within a narrow viewport across interface languages', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.locator('.settingsButton').click();
+  const drawer = page.locator('.modal--drawer');
+  const languageSelect = drawer.locator('.settings > section').nth(1).locator('select');
+
+  for (const language of ['en', 'ja', 'ko', 'zh_TW'] as const) {
+    await languageSelect.selectOption(language);
+    await expect.poll(() => drawer.evaluate((element) => ({
+      drawerFits: element.scrollWidth <= element.clientWidth + 1,
+      sectionsFit: [...element.querySelectorAll<HTMLElement>('.settings > section')]
+        .every((section) => section.scrollWidth <= section.clientWidth + 1),
+    }))).toEqual({ drawerFits: true, sectionsFit: true });
   }
 });
 
