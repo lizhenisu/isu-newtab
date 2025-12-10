@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  deriveCollisionPushDirection,
   deriveRelativePushDirection,
   hasProtectedPieceCollision,
   PieceLayoutEngine,
@@ -41,16 +42,57 @@ describe('PieceLayoutEngine relative-position displacement', () => {
     expect(deriveRelativePushDirection(position(7, 0), position(3, 0))).toEqual({ x: -1, y: 0 });
   });
 
-  it('uses the shallower overlap axis for an equally distant diagonal target', () => {
+  it('uses vertical force when normalized single-quadrant overlap is equal', () => {
     expect(deriveRelativePushDirection(position(2, 2, 4, 4), position(0, 0, 4, 4))).toEqual({ x: 0, y: -1 });
   });
 
-  it('uses the active target side when placing an overlapping piece', () => {
+  it('derives paired-quadrant force from the blocker symmetry axes', () => {
+    const blocker = { left: 0, right: 10, top: 0, bottom: 10 };
+    expect(deriveCollisionPushDirection({ left: -2, right: 12, top: 8, bottom: 12 }, blocker)).toEqual({ x: 0, y: -1 });
+    expect(deriveCollisionPushDirection({ left: -2, right: 12, top: -2, bottom: 2 }, blocker)).toEqual({ x: 0, y: 1 });
+    expect(deriveCollisionPushDirection({ left: -2, right: 2, top: -2, bottom: 12 }, blocker)).toEqual({ x: 1, y: 0 });
+    expect(deriveCollisionPushDirection({ left: 8, right: 12, top: -2, bottom: 12 }, blocker)).toEqual({ x: -1, y: 0 });
+  });
+
+  it('uses normalized overlap depth in every single quadrant', () => {
+    const blocker = { left: 0, right: 10, top: 0, bottom: 10 };
+    // Narrow and deep contacts have shallower horizontal penetration.
+    expect(deriveCollisionPushDirection({ left: 8, right: 12, top: -2, bottom: 4 }, blocker)).toEqual({ x: -1, y: 0 });
+    expect(deriveCollisionPushDirection({ left: -2, right: 2, top: -2, bottom: 4 }, blocker)).toEqual({ x: 1, y: 0 });
+    expect(deriveCollisionPushDirection({ left: -2, right: 2, top: 6, bottom: 12 }, blocker)).toEqual({ x: 1, y: 0 });
+    expect(deriveCollisionPushDirection({ left: 8, right: 12, top: 6, bottom: 12 }, blocker)).toEqual({ x: -1, y: 0 });
+    // Wide and shallow contacts have shallower vertical penetration.
+    expect(deriveCollisionPushDirection({ left: 6, right: 12, top: -2, bottom: 2 }, blocker)).toEqual({ x: 0, y: 1 });
+    expect(deriveCollisionPushDirection({ left: -2, right: 4, top: -2, bottom: 2 }, blocker)).toEqual({ x: 0, y: 1 });
+    expect(deriveCollisionPushDirection({ left: -2, right: 4, top: 8, bottom: 12 }, blocker)).toEqual({ x: 0, y: -1 });
+    expect(deriveCollisionPushDirection({ left: 6, right: 12, top: 8, bottom: 12 }, blocker)).toEqual({ x: 0, y: -1 });
+    // The cross product compares normalized penetration for non-square pieces.
+    expect(deriveCollisionPushDirection(
+      { left: 16, right: 24, top: -2, bottom: 3 },
+      { left: 0, right: 20, top: 0, bottom: 10 },
+    )).toEqual({ x: -1, y: 0 });
+  });
+
+  it('pushes a large note left for a one-column-wide, three-row-deep fourth-quadrant overlap', () => {
+    expect(deriveCollisionPushDirection(
+      { left: 35, right: 39, top: 6, bottom: 9 },
+      { left: 0, right: 36, top: 0, bottom: 9 },
+    )).toEqual({ x: -1, y: 0 });
+  });
+
+  it('uses the drag-start side for a collision spanning both symmetry axes', () => {
+    const blocker = { left: 0, right: 10, top: 0, bottom: 10 };
+    const active = { left: 2, right: 8, top: 2, bottom: 8 };
+    expect(deriveCollisionPushDirection(active, blocker, { left: 2, right: 8, top: 12, bottom: 18 })).toEqual({ x: 0, y: -1 });
+    expect(deriveCollisionPushDirection(active, blocker, undefined, { x: -1, y: 0 })).toEqual({ x: -1, y: 0 });
+  });
+
+  it('uses the drag-start side when the target spans both blocker axes', () => {
     const result = solve([
       piece('active', position(0, 0)),
       piece('blocker', position(0, 4)),
     ], position(0, 5));
-    expect(result.pieces.find((item) => item.id === 'blocker')?.position?.y).toBeLessThan(4);
+    expect(result.pieces.find((item) => item.id === 'blocker')?.position?.y).toBeGreaterThan(4);
     expect(pieceLayoutHasCollisions(result.pieces)).toBe(false);
   });
 
@@ -71,6 +113,41 @@ describe('PieceLayoutEngine relative-position displacement', () => {
     const result = solve(snapshot, position(3, 0));
     expect(result.movedPieceIds).toEqual(['active', 'near']);
     expect(result.pieces.find((item) => item.id === 'distant')?.position).toEqual(position(20, 0));
+  });
+
+  it('pushes every blocker upward when one wide piece contacts both lower quadrants', () => {
+    const snapshot = [
+      piece('active', position(-18, 15, 36, 7)),
+      piece('left', position(-14, 10, 4, 3)),
+      piece('middle', position(-2, 10, 4, 3)),
+      piece('right', position(10, 10, 4, 3)),
+    ];
+    const target = position(-18, 12, 36, 7);
+    const result = solvePieceDragPlacement(snapshot, 'active', target);
+    expect([...result.contacts.values()]).toEqual([
+      { x: 0, y: -1 },
+      { x: 0, y: -1 },
+      { x: 0, y: -1 },
+    ]);
+    for (const id of ['left', 'middle', 'right']) {
+      expect(result.pieces.find((item) => item.id === id)?.position?.y).toBeLessThan(10);
+      expect(result.pieces.find((item) => item.id === id)?.position?.x).toBe(snapshot.find((item) => item.id === id)?.position?.x);
+    }
+    expect(pieceLayoutHasCollisions(result.pieces)).toBe(false);
+  });
+
+  it('uses one custom runtime rectangle for collision and direction', () => {
+    const snapshot = [
+      piece('active', position(0, 10, 4, 3)),
+      piece('blocker', position(10, 4, 4, 3)),
+    ];
+    const collisionRect = (id: string, value: PiecePosition) => id === 'active'
+      ? { left: -20, right: 20, top: value.y, bottom: value.y + value.height }
+      : { left: value.x, right: value.x + value.width, top: value.y, bottom: value.y + value.height };
+    const result = solvePieceDragPlacement(snapshot, 'active', position(0, 5), new Map(), { collisionRect });
+    expect(result.contacts.get('blocker')).toEqual({ x: 0, y: -1 });
+    expect(result.movedPieceIds).toContain('blocker');
+    expect(result.pieces.find((item) => item.id === 'blocker')?.position?.y).toBeLessThan(4);
   });
 
   it('does not use the active piece width as the displacement step', () => {
