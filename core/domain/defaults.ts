@@ -31,6 +31,7 @@ export function createInitialConfig(identity: DeviceIdentity): AppConfig {
       revision,
     }],
     shortcuts: [],
+    quickNote: undefined,
     appearance: {
       theme: { value: 'system', revision },
       blur: { value: 0, revision },
