@@ -160,6 +160,7 @@ export const appConfigSchema = z.object({
   updatedAt: z.string().datetime(),
   groups: z.array(groupSchema),
   shortcuts: z.array(shortcutSchema),
+  quickNote: versioned(z.string()).optional(),
   appearance: appearanceSchema,
 }).superRefine((config, context) => {
   const groupIds = new Set(config.groups.map((group) => group.id));
@@ -221,6 +222,7 @@ export const syncEnvelopeSchema = z.object({
     updatedAt: z.string().datetime(),
     groups: z.array(groupSchema),
     shortcuts: z.array(shortcutSchema),
+    quickNote: versioned(z.string()).optional(),
     appearance: syncAppearanceSchema,
   }),
   pieces: z.array(pieceSchema).default([]),
