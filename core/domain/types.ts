@@ -3,6 +3,12 @@ import type { Piece } from './pieces';
 
 export const DEFAULT_GROUP_ID = 'default';
 
+export const QUICK_NOTE_SYNC_LIMIT_BYTES = 10_240;
+
+export function quickNoteByteLength(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
+}
+
 export type Revision = {
   counter: number;
   deviceId: string;
@@ -85,6 +91,7 @@ export type AppConfig = {
   updatedAt: string;
   groups: ShortcutGroup[];
   shortcuts: Shortcut[];
+  quickNote?: VersionedValue<string>;
   appearance: Appearance;
 };
 
@@ -100,7 +107,7 @@ export type SyncMetadata = {
 
 export type OutboxEntry = {
   opId: string;
-  entityType: 'group' | 'shortcut' | 'piece' | 'appearance' | 'envelope';
+  entityType: 'group' | 'shortcut' | 'piece' | 'appearance' | 'quickNote' | 'envelope';
   entityId: string;
   revision: Revision;
   changeType: 'upsert' | 'delete';
