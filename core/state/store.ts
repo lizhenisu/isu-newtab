@@ -24,6 +24,7 @@ type AppState = {
   deleteGroup(id: string): Promise<void>;
   addShortcut(input: ShortcutInput & { position?: WidgetPosition }): Promise<Shortcut>;
   updateShortcut(id: string, input: ShortcutInput): Promise<void>;
+  updateQuickNote(note: string): Promise<void>;
   deleteShortcut(id: string): Promise<void>;
   moveShortcut(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: DesktopCommit | FolderShortcutDesktopDropPlan): Promise<void>;
   moveGroup(id: string, beforeId?: string, afterId?: string): Promise<void>;
@@ -84,6 +85,7 @@ export const useAppStore = create<AppState>((set) => ({
     return shortcut!;
   },
   async updateShortcut(id, input) { await mutate(set, () => appRepositories.config.updateShortcut(id, input)); },
+  async updateQuickNote(note) { await mutate(set, () => appRepositories.config.updateQuickNote(note)); },
   async deleteShortcut(id) { await mutate(set, () => appRepositories.config.deleteShortcut(id)); },
   async moveShortcut(id, groupId, beforeId, afterId, position, commit) {
     try {
@@ -113,7 +115,8 @@ export const useAppStore = create<AppState>((set) => ({
     try {
       await browser.runtime.sendMessage({ type: 'sync:set-mode', mode });
     } catch (error) {
-      if (mode !== 'local' || !window.confirm(t('forceLocal'))) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('FINAL_SYNC_REQUIRED') || !window.confirm(t('forceSyncSwitch'))) throw error;
       await browser.runtime.sendMessage({ type: 'sync:set-mode', mode, force: true });
     }
     await reload(set);
