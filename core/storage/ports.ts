@@ -52,6 +52,7 @@ export interface ConfigRepository {
   deleteGroup(id: string): Promise<void>;
   addShortcut(input: ShortcutInput & { position?: WidgetPosition }): Promise<Shortcut>;
   updateShortcut(id: string, input: ShortcutInput): Promise<void>;
+  updateQuickNote(note: string): Promise<void>;
   moveShortcut(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: DesktopCommit | FolderShortcutDesktopDropPlan): Promise<AppStateSnapshot>;
   moveGroup(id: string, beforeId?: string, afterId?: string): Promise<void>;
   deleteShortcut(id: string): Promise<void>;
