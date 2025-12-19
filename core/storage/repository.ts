@@ -17,6 +17,8 @@ import {
   type SyncMetadata,
   type SyncMode,
   type Wallpaper,
+  QUICK_NOTE_SYNC_LIMIT_BYTES,
+  quickNoteByteLength,
 } from '../domain/types';
 import { getDatabase } from './database';
 import { legacyShortcutIconIds, migrateAppConfig } from '../domain/migration';
@@ -152,6 +154,9 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
       await transaction.objectStore('config').put(config, 'current');
     }
     await ensureBusinessPieces(transaction.objectStore('pieces'), config);
+    for (const entry of await repairFolderChildPositions(transaction.objectStore('pieces'), config, identity)) {
+      await transaction.objectStore('outbox').put(entry);
+    }
     for (const entry of await reconcileDesktopShortcutContainers(transaction.objectStore('pieces'), config, identity)) {
       await transaction.objectStore('outbox').put(entry);
     }
@@ -167,6 +172,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const observedCounters = [
       ...config.groups.map((item) => item.revision.counter),
       ...config.shortcuts.map((item) => item.revision.counter),
+      ...(config.quickNote ? [config.quickNote.revision.counter] : []),
       ...Object.values(config.appearance).map((item) => item.revision.counter),
       ...metadata.tombstones.map((item) => item.revision.counter),
     ];
@@ -531,6 +537,28 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     await transaction.objectStore('config').put(config, 'current');
     await transaction.objectStore('settings').put(identity, 'deviceIdentity');
     await transaction.objectStore('outbox').put(outboxEntry('shortcut', id, shortcut.revision, 'upsert'));
+    await transaction.done;
+    this.emit();
+  }
+
+  async updateQuickNote(note: string): Promise<void> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['config', 'outbox', 'settings'], 'readwrite');
+    const config = await this.requireConfig(transaction.objectStore('config'));
+    const identity = await this.requireIdentity(transaction.objectStore('settings'));
+    const revision = nextRevision(identity, config.quickNote?.revision);
+    config.quickNote = { value: note, revision };
+    config.updatedAt = new Date().toISOString();
+    await transaction.objectStore('config').put(config, 'current');
+    await transaction.objectStore('settings').put(identity, 'deviceIdentity');
+    // Oversized notes remain local-only and must not create a retrying outbox item.
+    if (quickNoteByteLength(note) <= QUICK_NOTE_SYNC_LIMIT_BYTES) {
+      await transaction.objectStore('outbox').put(outboxEntry('quickNote', 'current', revision, 'upsert'));
+    } else {
+      for (const entry of await transaction.objectStore('outbox').getAll()) {
+        if (entry.entityType === 'quickNote') await transaction.objectStore('outbox').delete(entry.opId);
+      }
+    }
     await transaction.done;
     this.emit();
   }
@@ -935,6 +963,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const revisions = [
       ...config.groups.map((item) => item.revision),
       ...config.shortcuts.map((item) => item.revision),
+      ...(config.quickNote ? [config.quickNote.revision] : []),
       ...Object.values(config.appearance).map((item) => item.revision),
     ].filter((revision) => revision.deviceId === identity.deviceId);
     identity.counter = Math.max(identity.counter, ...revisions.map((revision) => revision.counter));
@@ -966,6 +995,12 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const transaction = database.transaction(['config', 'metadata', 'settings', 'cursors', 'outbox', 'pieces', 'syncReplicas'], 'readwrite');
     const migration = migrateDesktopPositions(config);
     const normalized = migration.config;
+    const currentConfig = await transaction.objectStore('config').get('current') as AppConfig | undefined;
+    // A local oversized note is intentionally not represented in the remote
+    // envelope. Preserve it when applying a snapshot which has no note field.
+    if (currentConfig?.quickNote && quickNoteByteLength(currentConfig.quickNote.value) > QUICK_NOTE_SYNC_LIMIT_BYTES) {
+      normalized.quickNote = clone(currentConfig.quickNote);
+    }
     for (const id of migration.changedShortcuts) {
       const shortcut = normalized.shortcuts.find((item) => item.id === id)!;
       shortcut.revision = nextRevision(identity, shortcut.revision);
@@ -1437,6 +1472,23 @@ async function ensureBusinessPieces(store: PieceStore, config: AppConfig): Promi
     const desktop = shortcut.groupId === DEFAULT_GROUP_ID && shortcut.position;
     await store.put({ id, kind: 'shortcut', payloadRef: shortcut.id, container: desktop ? { kind: 'desktop' } : { kind: 'folder', folderPieceId: `piece:folder:${shortcut.groupId}` }, ...(desktop ? { position: widgetPositionToPiece(shortcut.position!) } : {}), revision: shortcut.revision });
   }
+}
+
+/** Clears only a redundant folder-child coordinate from legacy local data. */
+async function repairFolderChildPositions(store: PieceStore, config: AppConfig, identity: DeviceIdentity): Promise<OutboxEntry[]> {
+  const groups = new Map(config.groups.map((group) => [`piece:folder:${group.id}`, group.id]));
+  const shortcuts = new Map(config.shortcuts.map((shortcut) => [shortcut.id, shortcut.groupId]));
+  const entries: OutboxEntry[] = [];
+  for (const piece of await store.getAll()) {
+    if (piece.kind !== 'shortcut' || piece.container.kind !== 'folder' || !piece.position) continue;
+    const groupId = groups.get(piece.container.folderPieceId);
+    if (!groupId || shortcuts.get(piece.payloadRef) !== groupId) continue;
+    delete piece.position;
+    piece.revision = nextRevision(identity, piece.revision);
+    await store.put(piece);
+    entries.push(outboxEntry('piece', piece.id, piece.revision, 'upsert'));
+  }
+  return entries;
 }
 
 /**
