@@ -1,9 +1,9 @@
-import { syncEnvelopeSchema } from '../domain/schema';
 import type { Revision, SyncEnvelope } from '../domain/types';
 import { compareBySortKey } from '../domain/sort';
 import type { AdapterStatus } from './adapter';
 import { ChromeSyncAdapter, CHROME_ITEM_TARGET_BYTES, CHROME_STOP_BYTES, CHROME_WARNING_BYTES, type SyncStorageArea } from './chrome-adapter';
 import type { PublishCommitInput, PublishReceipt, CommitSyncAdapter } from './commit-adapter';
+import { repairLegacyFolderChildPositions, validateSyncEnvelope } from './engine';
 import { compareCommit, maximalHeads, type DeviceHead, type RemoteReplicaGraph, type SyncCommit } from './commit-graph';
 import { base64ToBytes, bytesToBase64, canonicalStringify, gunzipJson, gzipJson, sha256 } from './codec';
 
@@ -13,8 +13,9 @@ const HEAD_PREFIX = `${V2_PREFIX}head/`;
 const ACK_PREFIX = `${V2_PREFIX}ack/`;
 
 type StorageValues = Record<string, unknown>;
-type BucketKind = 'settings' | 'groups' | 'shortcuts' | 'pieces' | 'tombstones';
+type BucketKind = 'settings' | 'groups' | 'shortcuts' | 'pieces' | 'tombstones' | 'quickNote';
 type BucketPayload = { kind: BucketKind; items: unknown[] };
+type QuickNoteChunk = { revision: Revision; index: number; total: number; value: string };
 type ObjectKind = 'bucket' | 'root' | 'commit';
 type StoredObject = { protocolVersion: 2; kind: ObjectKind; hash: string; data: string };
 type RootPayload = {
@@ -91,14 +92,14 @@ export class ChromeCommitSyncAdapter implements CommitSyncAdapter {
     }
     const envelope = normalizeEnvelope(assembleEnvelope(payloads, root));
     if (await sha256(canonicalStringify(envelope)) !== root.envelopeHash) throw new Error('REMOTE_ENVELOPE_CORRUPT');
-    return normalizeEnvelope(syncEnvelopeSchema.parse(envelope) as SyncEnvelope);
+    return normalizeEnvelope(validateSyncEnvelope(repairLegacyFolderChildPositions(envelope)));
   }
 
   async publish(input: PublishCommitInput): Promise<PublishReceipt> {
     if (!this.enabled) throw new Error('SYNC_DISABLED');
     this.status = { state: 'syncing' };
     try {
-      const normalized = normalizeEnvelope(input.envelope);
+      const normalized = normalizeEnvelope(validateSyncEnvelope(input.envelope));
       const values = await this.storage.get(null);
       const bucketObjects = await buildBucketObjects(normalized);
       const rootPayload: RootPayload = {
@@ -245,12 +246,37 @@ async function buildBucketObjects(envelope: SyncEnvelope): Promise<StoredObject[
   } }] };
   const payloads = [
     settings,
+    ...(envelope.config.quickNote ? await partition('quickNote', splitQuickNote(envelope.config.quickNote), (item) => String(item.index)) : []),
     ...await partition('groups', envelope.config.groups),
     ...await partition('shortcuts', envelope.config.shortcuts),
     ...await partition('pieces', envelope.pieces ?? [], (item) => String((item as { id: string }).id)),
     ...await partition('tombstones', envelope.metadata.tombstones, (item) => `${(item as { entityType: string; entityId: string }).entityType}/${(item as { entityId: string }).entityId}`),
   ];
   return Promise.all(payloads.map((payload) => makeObject('bucket', payload)));
+}
+
+function splitQuickNote(note: NonNullable<SyncEnvelope['config']['quickNote']>): QuickNoteChunk[] {
+  const chunks: QuickNoteChunk[] = [];
+  let value = '';
+  for (const character of Array.from(note.value)) {
+    if (value && new TextEncoder().encode(value + character).byteLength > 4_096) {
+      chunks.push({ revision: note.revision, index: chunks.length, total: 0, value });
+      value = '';
+    }
+    value += character;
+  }
+  if (value || !chunks.length) chunks.push({ revision: note.revision, index: chunks.length, total: 0, value });
+  return chunks.map((chunk) => ({ ...chunk, total: chunks.length }));
+}
+
+function assembleQuickNote(items: unknown[]): NonNullable<SyncEnvelope['config']['quickNote']> | undefined {
+  if (!items.length) return undefined;
+  const chunks = [...(items as QuickNoteChunk[])].sort((left, right) => left.index - right.index);
+  const total = chunks[0]?.total;
+  if (!total || chunks.length !== total || chunks.some((chunk, index) => chunk.index !== index || chunk.total !== total || typeof chunk.value !== 'string')) throw new Error('REMOTE_OBJECT_CORRUPT');
+  const revision = chunks[0]!.revision;
+  if (chunks.some((chunk) => JSON.stringify(chunk.revision) !== JSON.stringify(revision))) throw new Error('REMOTE_OBJECT_CORRUPT');
+  return { value: chunks.map((chunk) => chunk.value).join(''), revision };
 }
 
 async function partition<T>(kind: BucketKind, items: T[], identity: (item: T) => string = (item) => String((item as { id?: string }).id ?? '')): Promise<BucketPayload[]> {
@@ -314,7 +340,7 @@ function assembleEnvelope(payloads: BucketPayload[], root: RootPayload): SyncEnv
     datasetId: root.datasetId,
     epoch: root.generation,
     revision: root.revision,
-    config: { ...settings.config, updatedAt: root.configUpdatedAt, groups: items('groups') as SyncEnvelope['config']['groups'], shortcuts: items('shortcuts') as SyncEnvelope['config']['shortcuts'] },
+    config: { ...settings.config, ...(assembleQuickNote(items('quickNote')) ? { quickNote: assembleQuickNote(items('quickNote')) } : {}), updatedAt: root.configUpdatedAt, groups: items('groups') as SyncEnvelope['config']['groups'], shortcuts: items('shortcuts') as SyncEnvelope['config']['shortcuts'] },
     pieces: items('pieces') as SyncEnvelope['pieces'],
     metadata: { tombstones: items('tombstones') as SyncEnvelope['metadata']['tombstones'] },
   };
