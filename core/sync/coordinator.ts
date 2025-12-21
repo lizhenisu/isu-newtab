@@ -51,6 +51,37 @@ export class SyncCoordinator {
     return this.running;
   }
 
+  /** Activates the already-selected provider. Selection is persisted by the manager first. */
+  async activateSelected(): Promise<void> {
+    await this.dependencies.adapter.enable();
+    await this.run();
+  }
+
+  async deactivate(): Promise<void> {
+    if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+    if (this.running) {
+      try { await this.running; } catch { /* failed provider is being left explicitly */ }
+    }
+    await this.dependencies.adapter.disable();
+  }
+
+  /** Replaces only this provider's remote records with one validated local snapshot. */
+  async rebuildRemoteFromLocal(): Promise<void> {
+    const { adapter, repository, statusStore, providerMode } = this.dependencies;
+    await repository.initialize();
+    await this.deactivate();
+    await adapter.enable();
+    await repository.createCheckpoint();
+    const identity = await repository.getDeviceIdentity();
+    const local = await this.localEnvelope(identity);
+    if (!adapter.resetRemoteForRecovery) throw new Error('REMOTE_RESET_UNSUPPORTED');
+    await adapter.resetRemoteForRecovery();
+    await this.publishAndConfirm(local, [], identity);
+    await statusStore.clearConflict();
+    await repository.setSyncMode(providerMode);
+    this.schedule(0);
+  }
+
   async setMode(mode: SyncMode, force = false): Promise<void> {
     const { adapter, repository, statusStore, providerMode } = this.dependencies;
     const current = await repository.getSyncMode();
