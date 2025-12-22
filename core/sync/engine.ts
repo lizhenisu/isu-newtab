@@ -1,4 +1,4 @@
-import { appConfigSchema } from '../domain/schema';
+import { appConfigSchema, syncEnvelopeSchema } from '../domain/schema';
 import { compareRevision, maxRevision, nextRevision } from '../domain/revision';
 import {
   DEFAULT_GROUP_ID,
@@ -14,17 +14,38 @@ import {
   type VersionedValue,
   type WallpaperSyncProjection,
 } from '../domain/types';
+import { QUICK_NOTE_SYNC_LIMIT_BYTES, quickNoteByteLength } from '../domain/types';
 import { canonicalStringify } from './codec';
 import { compareBySortKey } from '../domain/sort';
 import { buildDesktopSnapshot, desktopPlacements, samePosition } from '../domain/desktop';
 import { executePieceDesktopCommand } from '../layout/piece-desktop-adapter';
 import { PIECE_MAX_X, PIECE_MIN_X, piecePositionsOverlap, type Piece, type PiecePosition } from '../domain/pieces';
 
+/** Repairs only the legacy redundant coordinate on a provably valid folder child. */
+export function repairLegacyFolderChildPositions(envelope: SyncEnvelope): SyncEnvelope {
+  const groups = new Map(envelope.config.groups.map((group) => [`piece:folder:${group.id}`, group.id]));
+  const shortcuts = new Map(envelope.config.shortcuts.map((shortcut) => [shortcut.id, shortcut.groupId]));
+  return { ...envelope, pieces: envelope.pieces.map((piece) => {
+    if (piece.container.kind !== 'folder' || !piece.position || piece.kind !== 'shortcut') return piece;
+    const groupId = groups.get(piece.container.folderPieceId);
+    if (!groupId || shortcuts.get(piece.payloadRef) !== groupId) return piece;
+    const repaired = structuredClone(piece);
+    delete repaired.position;
+    return repaired;
+  }) };
+}
+
+export function validateSyncEnvelope(envelope: SyncEnvelope): SyncEnvelope {
+  return syncEnvelopeSchema.parse(envelope) as SyncEnvelope;
+}
+
 export function createSyncProjection(config: AppConfig): SyncAppConfig {
   const { wallpaper, ...appearance } = config.appearance;
   const projected = projectWallpaper(wallpaper.value);
+  const projectedConfig = structuredClone(config);
+  if (!config.quickNote || quickNoteByteLength(config.quickNote.value) > QUICK_NOTE_SYNC_LIMIT_BYTES) delete projectedConfig.quickNote;
   return {
-    ...structuredClone(config),
+    ...projectedConfig,
     appearance: {
       ...appearance,
       ...(projected ? { wallpaper: { value: projected, revision: wallpaper.revision } } : {}),
@@ -52,7 +73,7 @@ export function createEnvelope(
   epoch: number,
   pieces: Piece[] = [],
 ): SyncEnvelope {
-  return {
+  return validateSyncEnvelope(repairLegacyFolderChildPositions({
     schemaVersion: 1,
     datasetId: config.datasetId,
     epoch,
@@ -60,7 +81,7 @@ export function createEnvelope(
     config: createSyncProjection(config),
     pieces: structuredClone(pieces),
     metadata: structuredClone(metadata),
-  };
+  }));
 }
 
 export function applySyncProjection(local: AppConfig, synced: SyncAppConfig): AppConfig {
@@ -71,6 +92,7 @@ export function applySyncProjection(local: AppConfig, synced: SyncAppConfig): Ap
     : local.appearance.wallpaper;
   const candidate: AppConfig = {
     ...structuredClone(synced),
+    ...(synced.quickNote ? { quickNote: synced.quickNote } : local.quickNote ? { quickNote: local.quickNote } : {}),
     appearance: { ...synced.appearance, wallpaper },
   };
   return appConfigSchema.parse(candidate);
@@ -139,12 +161,14 @@ function mergeWithBase(
   const wallpaperStartupFadeMs = mergeVersionedThreeWay(base?.config.appearance.wallpaperStartupFadeMs, local.config.appearance.wallpaperStartupFadeMs, remote.config.appearance.wallpaperStartupFadeMs);
   const solidColor = mergeVersionedThreeWay(base?.config.appearance.solidColor, local.config.appearance.solidColor, remote.config.appearance.solidColor);
   const search = mergeVersionedThreeWay(base?.config.appearance.search, local.config.appearance.search, remote.config.appearance.search);
+  const quickNote = mergeOptionalThreeWay(base?.config.quickNote, local.config.quickNote, remote.config.quickNote);
   const mergedConfig: SyncEnvelope['config'] = {
     schemaVersion: 1,
     datasetId: local.datasetId,
     updatedAt: new Date().toISOString(),
     groups: repaired.groups,
     shortcuts: repaired.shortcuts,
+    ...(quickNote ? { quickNote } : {}),
     appearance: { theme, blur, wallpaperStartupFadeMs, solidColor, widgetLayout, search, ...(wallpaper ? { wallpaper } : {}) },
   };
   // A piece is a placement projection of a business entity.  Its bucket is
@@ -363,6 +387,7 @@ export function envelopeContainsRevision(envelope: SyncEnvelope, entityType: str
     const value = envelope.config.appearance[entityId as keyof SyncAppConfig['appearance']];
     return Boolean(value && 'revision' in value && compareRevision(value.revision, revision) >= 0);
   }
+  if (entityType === 'quickNote') return Boolean(envelope.config.quickNote && compareRevision(envelope.config.quickNote.revision, revision) >= 0);
   const collection = entityType === 'group' ? envelope.config.groups : entityType === 'shortcut' ? envelope.config.shortcuts : envelope.pieces ?? [];
   const entity = collection.find((item) => item.id === entityId);
   if (entity && compareRevision(entity.revision, revision) >= 0) return true;
