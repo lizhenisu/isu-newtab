@@ -95,10 +95,13 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener((message: unknown) => {
     const request = message as { type?: string; mode?: 'local' | 'chrome' | 'google-drive'; force?: boolean; choice?: 'local-overwrite' | 'remote-replace' | 'external-import'; url?: string; language?: AppLanguage };
     if (request.type === 'sync:schedule') void syncProviders.schedule();
+    if (request.type === 'sync:run') return syncProviders.runActive();
     if (request.type === 'sync:set-mode' && request.mode) {
-      return syncProviders.setMode(request.mode, request.force).then(reconcileSyncProvider);
+      return syncProviders.setMode(request.mode, request.force)
+        .then(reconcileSyncProvider, async (error) => { await reconcileSyncProvider(); throw error; });
     }
     if (request.type === 'sync:resolve' && request.choice) return syncProviders.resolveConflict(request.choice);
+    if (request.type === 'sync:rebuild-remote') return syncProviders.rebuildRemoteFromLocal();
     if (request.type === 'wallpaper:cache' && request.url) return cacheWallpaperWithStatus(request.url);
     if (request.type === 'wallpaper:unsplash:cache' && request.url) return cacheUnsplashWallpaperWithStatus(request.url);
     if (request.type === 'wallpaper:random:activate') return refreshRandomWallpaper();
