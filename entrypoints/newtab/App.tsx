@@ -69,6 +69,7 @@ export function App() {
     onAddGroup: (position) => { void addGroup(position); },
     onEditShortcut: setEditing,
     onDeleteShortcut: actions.deleteShortcut,
+    onUpdateQuickNote: actions.updateQuickNote,
     onRenameGroup: (group) => { void renameGroup(group); },
     onDeleteGroup: async (group) => {
       if (config.shortcuts.some((item) => item.groupId === group.id)) return;
@@ -116,14 +117,14 @@ function CachedPieceBoard({ pieces, context, onPiecesChanged, shortcutIconRefres
   return <ShortcutIconCacheProvider urls={cache.urls}><PieceBoard pieces={pieces} context={context} onPiecesChanged={onPiecesChanged} /></ShortcutIconCacheProvider>;
 }
 
-type WallpaperBackground = {
+export type WallpaperBackground = {
   identity: string;
   background: string;
   source: 'asset' | 'static';
   dispose?: () => void;
 };
 
-function useWallpaperBackground(wallpaper?: NonNullable<ReturnType<typeof useAppStore.getState>['config']>['appearance']['wallpaper']['value']): WallpaperBackground | undefined {
+export function useWallpaperBackground(wallpaper?: NonNullable<ReturnType<typeof useAppStore.getState>['config']>['appearance']['wallpaper']['value']): WallpaperBackground | undefined {
   const [localBackground, setLocalBackground] = useState<WallpaperBackground>();
   const [randomState, setRandomState] = useState<RandomWallpaperState>();
   const [bingDailyState, setBingDailyState] = useState<BingDailyState>();
@@ -265,7 +266,7 @@ type WallpaperLayers = {
 
 const WALLPAPER_FADE_DURATION_MS = 2_000;
 
-function WallpaperBackdrop({ background, startupFadeMs }: { background?: WallpaperBackground; startupFadeMs: number }) {
+export function WallpaperBackdrop({ background, startupFadeMs }: { background?: WallpaperBackground; startupFadeMs: number }) {
   const [layers, setLayers] = useState<WallpaperLayers>(() => ({
     frozen: [],
     transitionId: 0,
