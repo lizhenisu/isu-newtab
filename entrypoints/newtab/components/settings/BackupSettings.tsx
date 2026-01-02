@@ -9,6 +9,7 @@ import { errorMessage } from './error-message';
 export function BackupSettings() {
   const config = useAppStore((state) => state.config)!;
   const refresh = useAppStore((state) => state.refresh);
+  const syncMode = useAppStore((state) => state.syncMode);
   const importInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
 
@@ -61,6 +62,16 @@ export function BackupSettings() {
     await browser.runtime.sendMessage({ type: 'sync:schedule' }).catch(() => undefined);
   };
 
+  const rebuildRemote = async () => {
+    if (syncMode === 'local') { setError(t('rebuildRemoteRequiresProvider')); return; }
+    const provider = syncMode === 'google-drive' ? t('googleDriveSync') : t('chromeSync');
+    if (!window.confirm(t('confirmRebuildRemote').replace('{provider}', provider))) return;
+    try {
+      await browser.runtime.sendMessage({ type: 'sync:rebuild-remote' });
+      await refresh();
+    } catch (reason) { setError(errorMessage(reason)); }
+  };
+
   return (
     <section className="backupActions">
       <h3>{t('backupAndRestore')}</h3>
@@ -68,6 +79,7 @@ export function BackupSettings() {
         <button type="button" onClick={exportBackup}>{t('exportBackup')}</button>
         <button type="button" className="secondary" onClick={() => importInput.current?.click()}>{t('importBackup')}</button>
         <button type="button" className="secondary" onClick={restoreCheckpoint}>{t('restoreCheckpoint')}</button>
+        <button type="button" className="secondary" disabled={syncMode === 'local'} onClick={() => void rebuildRemote()}>{t('rebuildRemote')}</button>
       </div>
       <input ref={importInput} type="file" accept=".zip,application/zip" hidden onChange={importBackup} />
       {error && <p className="errorText" role="alert">{error}</p>}
