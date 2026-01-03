@@ -16,13 +16,10 @@ export function SyncSettings() {
 
   const selectMode = async (mode: 'local' | 'chrome' | 'google-drive') => {
     setConnectionError(undefined);
-    if (mode === 'google-drive' && syncMode !== 'google-drive') {
-      setDriveSelected(true);
-      return;
-    }
+    if (mode === 'google-drive') setDriveSelected(true);
     try {
       await setSyncMode(mode);
-      setDriveSelected(false);
+      if (mode !== 'google-drive') setDriveSelected(false);
     } catch (error) {
       setConnectionError(error instanceof Error ? error.message : String(error));
     }
@@ -34,6 +31,7 @@ export function SyncSettings() {
       const result = await chrome.identity.getAuthToken({ interactive: true });
       if (!result.token) throw new Error('GOOGLE_DRIVE_AUTH_CANCELLED');
       await setSyncMode('google-drive');
+      await browser.runtime.sendMessage({ type: 'sync:run' });
       setDriveSelected(false);
     } catch (error) {
       setConnectionError(error instanceof Error ? error.message : String(error));
@@ -97,8 +95,10 @@ function SyncStatus() {
 
 function syncMessage(code?: string): string {
   switch (code) {
+    case 'FINAL_SYNC_REQUIRED': return t('syncFinalSyncRequired');
     case 'REMOTE_ENVELOPE_CORRUPT':
     case 'REMOTE_GRAPH_CORRUPT': return `${t('syncRecoveryRemoteCorrupt')} (${code})`;
+    case 'FOLDER_CHILD_POSITION_FORBIDDEN': return `${t('syncRecoveryRemoteCorrupt')} (${code})`;
     case 'REMOTE_DATASET_CHANGED': return `${t('syncRecoveryDatasetChanged')} (${code})`;
     case 'REMOTE_GENERATION_CHANGED': return `${t('syncRecoveryGenerationChanged')} (${code})`;
     case 'BASELINE_CORRUPT': return `${t('syncRecoveryBaselineCorrupt')} (${code})`;
