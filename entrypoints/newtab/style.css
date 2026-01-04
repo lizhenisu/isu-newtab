@@ -245,8 +245,15 @@ button { cursor: pointer; }
 .searchSuggestions button span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .quickNote { display: grid; width: 100%; margin-top: 18px; padding: 22px 28px 16px; border: 1px solid var(--glass-edge); border-radius: 24px; background: var(--glass); backdrop-filter: blur(calc(var(--blur) + 18px)) saturate(185%) brightness(1.06); box-shadow: inset 0 1px 1px rgba(255,255,255,.58), inset 1px 0 1px rgba(255,255,255,.15), inset 0 -1px 1px rgba(255,255,255,.06), 0 18px 42px var(--glass-depth); }
 .quickNote label { color: var(--hero-text); font-size: 24px; font-weight: 720; text-align: center; }
-.quickNote textarea { width: 100%; min-height: 132px; margin-top: 8px; resize: none; border: 0; outline: 0; color: var(--hero-text); background: transparent; font-size: 16px; line-height: 1.6; text-align: center; }
+.quickNote textarea { width: 100%; min-height: 132px; margin-top: 8px; resize: none; border: 0; outline: 0; color: var(--hero-text); background: transparent; font-size: 16px; line-height: 1.4; text-align: center; overflow-wrap: anywhere; }
 .quickNote textarea::placeholder { color: var(--hero-muted); }
+.quickNote__measure { position: absolute; top: 0; left: 0; height: auto; visibility: hidden; pointer-events: none; }
+.quickNote__preview { width: 100%; max-height: calc(6 * 1.4em); overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--hero-text); font-size: 16px; line-height: 1.4; text-align: center; -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 1.4em), transparent 100%); mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 1.4em), transparent 100%); }
+.quickNote__expand { justify-self: center; display: inline-flex; align-items: center; gap: 5px; margin: 4px auto 0; padding: 4px 12px; border: 1px solid var(--glass-edge); border-radius: 999px; color: var(--hero-text); background: rgba(255,255,255,.1); font-size: 12px; }
+.quickNote--overflowing { grid-template-rows: minmax(0, 1fr) auto; }
+.quickNote--expanded { width: min(66.6667vw, 100%); height: 80vh; min-height: 0; margin: 0; padding: 32px 42px 28px; }
+.quickNote--expanded textarea { height: 100%; min-height: 0; margin: 0; resize: none; overflow-y: auto; text-align: left; font-size: clamp(16px, 1.5vw, 24px); line-height: 1.65; }
+.quickNote--expanded .quickNote__measure { display: none; }
 
 /* The specular layer is shared so every control reads as the same glass material. */
 .settingsButton,
@@ -894,8 +901,35 @@ input:focus, select:focus { border-color: rgba(214,235,255,.74); box-shadow: ins
   .dailyQuote blockquote { max-width: calc(100vw - 22px); }
   .settingsButton { top: 12px; right: 12px; }
   .quickNote { padding: 20px 18px 14px; }
+  .quickNote__preview { font-size: 14px; line-height: 1.35; max-height: calc(6 * 1.35em); -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 1.35em), transparent 100%); mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 1.35em), transparent 100%); }
+  .quickNote--expanded { width: calc(100% - 32px); height: 80vh; padding: 24px 20px; }
   .wallpaperChoices { grid-template-columns: repeat(2, 1fr); }
   .wallhavenGrid { grid-template-columns: repeat(2, 1fr); }
   .modal--drawer { width: min(420px, calc(100vw - 12px)); padding: 18px; border-radius: 22px 0 0 22px; }
 }
+/* Keep measurement out of layout and all three text surfaces metrically identical. */
+.quickNote { --note-font-size: 16px; --note-line-height: 22px; grid-template-rows: minmax(0, 1fr); gap: 4px; min-height: 0; }
+.pieceBoard .dashboardWidget--quickNote { height: var(--piece-height); min-height: var(--piece-height); flex-shrink: 0; grid-template-rows: minmax(0, 1fr); }
+.dashboardWidget--quickNote > .pieceContent { grid-template-rows: minmax(0, 1fr); align-items: stretch; height: 100%; }
+.piece--system-widget .quickNote { --note-line-height: 20px; align-self: center; height: 175px; min-height: 175px; max-height: 175px; margin: 0; padding: 10px 24px; }
+.quickNote__body { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+.quickNote .quickNote__measure,
+.quickNote .quickNote__preview,
+.quickNote textarea { box-sizing: border-box; width: 100%; margin: 0; padding: 0; border: 0; font-family: inherit; font-size: var(--note-font-size); line-height: var(--note-line-height); letter-spacing: normal; white-space: pre-wrap; overflow-wrap: anywhere; text-align: center; }
+.quickNote textarea { display: block; height: 100%; min-height: 0; overflow: hidden; }
+.quickNote .quickNote__preview { height: calc(6 * var(--note-line-height)); max-height: calc(6 * var(--note-line-height)); mask-image: linear-gradient(to bottom, #000 calc(5 * var(--note-line-height)), transparent calc(6 * var(--note-line-height))); }
+.quickNote--overflowing { grid-template-rows: minmax(0, 1fr) auto; }
+.quickNote:has(> small) { grid-template-rows: minmax(0, 1fr) auto; }
+.quickNote--overflowing:has(> small) { grid-template-rows: minmax(0, 1fr) auto auto; }
+.quickNote > small { font-size: 11px; line-height: 14px; }
+.quickNote__expand { margin: 0 auto; padding: 3px 12px; min-height: 24px; }
+.quickNote--expanded { --note-font-size: clamp(16px, 1.5vw, 24px); --note-line-height: 1.65em; }
+.quickNote--expanded textarea { overflow-y: auto; text-align: left; }
+@container (max-width: 500px) {
+  .piece--system-widget .quickNote { --note-font-size: 14px; --note-line-height: 19px; padding: 10px 16px; }
+}
+@media (max-width: 640px) {
+  .quickNote:not(.quickNote--expanded) { --note-font-size: 14px; --note-line-height: 19px; }
+}
+.piece--system-widget .quickNote:has(> small) { --note-font-size: 14px; --note-line-height: 18px; padding-block: 6px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
