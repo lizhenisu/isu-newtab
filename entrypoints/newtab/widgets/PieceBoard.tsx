@@ -458,7 +458,7 @@ function PieceCell({ piece, context, dragging, activeDragPieceId, displaced, fol
         : <button type="button" className="pieceAdd" onClick={onAdd}><span className="shortcutWaterShell shortcutWaterShell--add"><PlusIcon className="shortcutWaterShell__content shortcutWaterShell__plus" /></span><strong>{t('addShortcut')}</strong></button>;
   return <section ref={(node) => { draggable.setNodeRef(node); droppable.setNodeRef(node); nodeRef.current = node; }} data-piece-id={piece.id} data-desktop-key={pieceKey(piece)} data-drag-click-key={piece.id} data-widget-id={piece.kind === 'system-widget' ? piece.payloadRef : undefined}
     className={`piece dashboardWidget desktopItem--${piece.kind} piece--${piece.kind} ${piece.kind === 'system-widget' ? `dashboardWidget--${piece.payloadRef}` : ''} ${folderTarget ? 'isFolderTarget' : ''} ${displaced ? 'isDisplaced' : ''} ${draggable.isDragging ? 'piece--dragging piece--drag-overlay-source' : ''} ${dragging ? 'piece--editable' : ''}`}
-    style={{ ...pieceGridStyle(position), transform: dragging && !draggable.isDragging && draggable.transform ? `translate3d(${draggable.transform.x}px,${draggable.transform.y}px,0)` : undefined }}
+    style={{ ...pieceGridStyle(position), '--piece-height': `${position.height * 40}px`, transform: dragging && !draggable.isDragging && draggable.transform ? `translate3d(${draggable.transform.x}px,${draggable.transform.y}px,0)` : undefined } as React.CSSProperties}
     onPointerDown={(event) => {
       const interactiveControl = (event.target as HTMLElement).closest('button,input,textarea,select,[contenteditable="true"]');
       const isFolderButton = piece.kind === 'folder' && interactiveControl?.matches('button.pieceFolder');
