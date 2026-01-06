@@ -18,6 +18,7 @@ export type DashboardWidgetContext = {
   onAddGroup(position?: WidgetPosition): void;
   onEditShortcut(shortcut: Shortcut): void;
   onDeleteShortcut(id: string): Promise<void>;
+  onUpdateQuickNote?(note: string): Promise<void>;
   onRenameGroup(group: ShortcutGroup): void;
   onDeleteGroup(group: ShortcutGroup): Promise<void>;
   onMoveShortcut(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: import('../../../core/domain/desktop').DesktopCommit | import('../../../core/layout/folder-shortcut-desktop-drop').FolderShortcutDesktopDropPlan): Promise<void>;
@@ -42,7 +43,7 @@ export const WIDGET_REGISTRY: Record<SystemWidgetId, WidgetDefinition> = {
   greeting: { id: 'greeting', labelKey: 'widgetGreeting', render: ({ now }) => <GreetingWidget now={now} /> },
   focusTimer: { id: 'focusTimer', labelKey: 'focusTimer', render: () => <FocusTimer /> },
   search: { id: 'search', labelKey: 'widgetSearch', render: (context) => <SearchWidget preferences={context.searchPreferences} historySource={context.searchHistorySource} /> },
-  quickNote: { id: 'quickNote', labelKey: 'quickNote', render: () => <QuickNote /> },
+  quickNote: { id: 'quickNote', labelKey: 'quickNote', render: (context) => <QuickNote value={context.config.quickNote?.value ?? ''} onChange={context.onUpdateQuickNote} /> },
   dailyQuote: { id: 'dailyQuote', labelKey: 'widgetDailyQuote', render: ({ now }) => <DailyQuote now={now} /> },
   weather: { id: 'weather', labelKey: 'widgetWeather', render: () => <WeatherWidget /> },
 };
