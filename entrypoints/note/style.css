@@ -1,0 +1,6 @@
+.noteApp { min-height: 100dvh; overflow: hidden; background: #000; }
+.notePage { position: relative; z-index: 2; display: grid; place-items: center; width: 100%; min-height: 100dvh; padding: 10vh 0; }
+.noteApp .quickNote { box-shadow: var(--liquid-glass-shadow); }
+@media (max-width: 640px) {
+  .notePage { padding: 10vh 16px; }
+}
