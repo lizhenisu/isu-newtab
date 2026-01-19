@@ -640,6 +640,175 @@ test('fits adjacent icon pieces inside their grid cells on medium narrow screens
   await expect(page.locator('.pieceBoard')).toHaveCSS('display', 'flex');
 });
 
+test('quick note uses black startup and the configured wallpaper fade', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+  const base = `chrome-extension://${new URL(worker.url()).host}`;
+  const desktop = await context.newPage();
+  await desktop.goto(`${base}/newtab.html`);
+  await expect(desktop.locator('.pieceBoard')).toBeVisible();
+  for (const duration of [1200, 0]) {
+    await desktop.evaluate(async (duration) => {
+      const db = await new Promise<IDBDatabase>((resolve) => {
+        const request = indexedDB.open('isu-newtab');
+        request.onsuccess = () => resolve(request.result);
+      });
+      const tx = db.transaction('config', 'readwrite');
+      const store = tx.objectStore('config');
+      const request = store.get('current');
+      request.onsuccess = () => {
+        const config = request.result;
+        config.appearance.wallpaperStartupFadeMs.value = duration;
+        store.put(config, 'current');
+      };
+      await new Promise<void>((resolve) => { tx.oncomplete = () => resolve(); });
+      db.close();
+    }, duration);
+    const page = await context.newPage();
+    await page.goto(`${base}/note.html`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(0, 0, 0)');
+    await expect(page.locator('.noteApp')).toHaveCSS('background-color', 'rgb(0, 0, 0)');
+    const backdrop = page.locator('.wallpaperBackdrop');
+    await expect(backdrop).toHaveCSS('--wallpaper-startup-fade', `${duration}ms`);
+    if (duration) {
+      const incoming = page.locator('.wallpaperLayer--incoming');
+      await expect(incoming).toHaveCSS('animation-name', 'wallpaper-startup-fade');
+      const first = await incoming.evaluate((element) => Number(getComputedStyle(element).opacity));
+      await page.waitForTimeout(150);
+      const next = await incoming.evaluate((element) => Number(getComputedStyle(element).opacity));
+      expect(next).toBeGreaterThan(first);
+      await expect(incoming).toHaveCount(0, { timeout: 3000 });
+    } else {
+      await expect(backdrop).toHaveAttribute('data-wallpaper-current', /.+/);
+      await expect(page.locator('.wallpaperLayer--incoming')).toHaveCount(0);
+    }
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.reload();
+    await expect(backdrop).toHaveAttribute('data-wallpaper-current', /.+/);
+    await expect(page.locator('.wallpaperLayer--incoming')).toHaveCount(0);
+    await page.close();
+  }
+});
+
+for (const [preset, columns, rows] of [['small', 16, 5], ['medium', 28, 7], ['large', 36, 9]] as const) {
+  test(`quick note fixed height: ${preset}, desktop and narrow`, async () => {
+    if (!context) throw new Error('Browser context was not created');
+    const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+    const base = `chrome-extension://${new URL(worker.url()).host}`;
+    const page = await context.newPage();
+    await page.goto(`${base}/newtab.html`);
+    await setWidgetsVisibility(page, ['quickNote']);
+    await page.evaluate(async ({ preset, columns, rows }) => {
+      const db = await new Promise<IDBDatabase>((resolve) => {
+        const request = indexedDB.open('isu-newtab');
+        request.onsuccess = () => resolve(request.result);
+      });
+      const tx = db.transaction(['pieces', 'config'], 'readwrite');
+      const pieces = tx.objectStore('pieces');
+      const request = pieces.get('piece:widget:quickNote');
+      request.onsuccess = () => {
+        const piece = request.result;
+        piece.position = { ...piece.position, x: -columns / 2, width: columns, height: rows };
+        pieces.put(piece);
+      };
+      const config = tx.objectStore('config');
+      const read = config.get('current');
+      read.onsuccess = () => {
+        const value = read.result;
+        value.appearance.widgetLayout.value.find((item: { id: string }) => item.id === 'quickNote').sizePreset = preset;
+        config.put(value, 'current');
+      };
+      await new Promise<void>((resolve, reject) => { tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); });
+      db.close();
+    }, { preset, columns, rows });
+    await page.reload();
+    const expanded = await context.newPage();
+    await expanded.goto(`${base}/note.html`);
+    const note = page.locator('.quickNote');
+    for (const width of [1280, 600]) {
+      await page.setViewportSize({ width, height: 900 });
+      for (const content of ['', '一行', '一\n二\n三\n四\n五\n六', '一\n二\n三\n四\n五\n六\n七', '恢复一行']) {
+        await expanded.locator('textarea').fill(content);
+        await expect.poll(() => note.locator('.quickNote__measure').textContent()).toBe(`${content}\u200b`);
+        const bounds = await note.evaluate((element) => {
+          const card = element.getBoundingClientRect();
+          const piece = element.closest('.piece')!.getBoundingClientRect();
+          const body = element.querySelector('.quickNote__body')!.getBoundingClientRect();
+          const button = element.querySelector('.quickNote__expand')?.getBoundingClientRect();
+          return { height: card.height, pieceHeight: piece.height, topInset: body.top - card.top,
+            fits: card.top >= piece.top && card.bottom <= piece.bottom && (!button || button.bottom <= card.bottom),
+            radius: getComputedStyle(element).borderRadius };
+        });
+        expect(bounds.height).toBe(175);
+        expect(bounds.pieceHeight).toBe(rows * 40);
+        expect(bounds.fits).toBe(true);
+        expect(bounds.topInset).toBeLessThan(25);
+        expect(bounds.radius).toBe('24px');
+      }
+    }
+  });
+}
+
+test('quick note preserves glass bounds and six-line preview through editing and expansion', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${new URL(worker.url()).host}/newtab.html`);
+  await setWidgetsVisibility(page, ['quickNote']);
+  const note = page.locator('.quickNote');
+  const editor = note.locator('textarea');
+  await expect(editor).toBeVisible();
+  const six = '第一行\n第二行\n\n第四行\n第五行\n第六行';
+  await editor.fill(six);
+  await expect(note.locator('.quickNote__expand')).toHaveCount(0);
+  await editor.dispatchEvent('compositionstart');
+  await editor.fill(`${six}\n第七行`);
+  await expect(editor).toBeVisible();
+  await editor.dispatchEvent('compositionend');
+  await expect(note.locator('.quickNote__preview')).toBeVisible();
+  await expect(note.locator('.quickNote__expand')).toBeVisible();
+  const metrics = await note.evaluate((element) => {
+    const card = element.getBoundingClientRect();
+    const piece = element.closest('.piece')!.getBoundingClientRect();
+    const body = element.querySelector('.quickNote__body')!.getBoundingClientRect();
+    const button = element.querySelector('.quickNote__expand')!.getBoundingClientRect();
+    const mirror = getComputedStyle(element.querySelector('.quickNote__measure')!);
+    return { radius: getComputedStyle(element).borderRadius, filter: getComputedStyle(element).backdropFilter,
+      fits: card.top >= piece.top - 1 && card.bottom <= piece.bottom + 1,
+      inset: body.top - card.top, buttonFits: button.bottom <= card.bottom,
+      measurement: mirror.position, mask: getComputedStyle(element.querySelector('.quickNote__preview')!).maskImage };
+  });
+  expect(metrics.radius).toBe('24px');
+  expect(metrics.filter).toContain('blur');
+  expect(metrics.fits).toBe(true);
+  expect(metrics.buttonFits).toBe(true);
+  expect(metrics.inset).toBeLessThan(25);
+  expect(metrics.measurement).toBe('absolute');
+  expect(metrics.mask).toContain('linear-gradient');
+  const opened = context.waitForEvent('page');
+  await note.locator('.quickNote__expand').click();
+  const expanded = await opened;
+  await expanded.waitForURL('**/note.html');
+  await expect(expanded.locator('textarea')).toHaveValue(`${six}\n第七行`);
+  await expanded.locator('textarea').fill('缩短后重新编辑');
+  await expect(editor).toHaveValue('缩短后重新编辑');
+  await editor.fill('自动换行的长段落。'.repeat(200));
+  await expect(note.locator('.quickNote__expand')).toBeVisible();
+  await expect(expanded.locator('textarea')).toHaveValue('自动换行的长段落。'.repeat(200));
+  for (const width of [760, 1280, 1920, 600]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(note.locator('.quickNote__expand')).toBeVisible();
+    expect(await note.evaluate((element) => {
+      const card = element.getBoundingClientRect();
+      const preview = element.querySelector('.quickNote__preview')!.getBoundingClientRect();
+      const button = element.querySelector('.quickNote__expand')!.getBoundingClientRect();
+      return preview.bottom <= button.top + 1 && button.bottom <= card.bottom;
+    })).toBe(true);
+  }
+  await page.reload();
+  await expect(note.locator('.quickNote__preview')).toContainText('自动换行');
+});
+
 test('keeps liquid-glass hover highlights inside stable desktop components', async () => {
   if (!context) throw new Error('Browser context was not created');
   let serviceWorker = context.serviceWorkers()[0];
