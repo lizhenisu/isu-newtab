@@ -37,6 +37,15 @@ describe('ChromeCommitSyncAdapter', () => {
     expect(storage.values['sync/activeHead']).toBeUndefined();
   });
 
+  it('round-trips a full 10KB note through dedicated buckets', async () => {
+    const storage = new MemoryStorage();
+    const adapter = new ChromeCommitSyncAdapter(storage);
+    const envelope = source();
+    envelope.config.quickNote = { value: 'x'.repeat(10_240), revision: { counter: 3, deviceId: 'device-a' } };
+    const receipt = await adapter.publish({ envelope, parents: [], deviceId: 'device-a' });
+    expect((await adapter.readSnapshot(receipt.commit.id)).config.quickNote).toEqual(envelope.config.quickNote);
+  });
+
   it('retains independent heads instead of overwriting another device', async () => {
     const storage = new MemoryStorage();
     const adapter = new ChromeCommitSyncAdapter(storage);
