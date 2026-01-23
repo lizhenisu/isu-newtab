@@ -84,6 +84,16 @@ describe('GoogleDriveCommitSyncAdapter', () => {
     expect([...drive.files.values()].every((file) => file.metadata.parents?.[0] === 'appDataFolder')).toBe(true);
   });
 
+  it('round-trips a full 10KB note as a validated object', async () => {
+    const drive = new MemoryDrive();
+    const adapter = new GoogleDriveCommitSyncAdapter(drive);
+    await adapter.enable();
+    const sourceEnvelope = envelope();
+    sourceEnvelope.config.quickNote = { value: 'x'.repeat(10_240), revision: { counter: 3, deviceId: 'device-a' } };
+    const receipt = await adapter.publish({ envelope: sourceEnvelope, parents: [], deviceId: 'device-a' });
+    expect((await adapter.readSnapshot(receipt.commit.id)).config.quickNote).toEqual(sourceEnvelope.config.quickNote);
+  });
+
   it('retains a distinct head for each device', async () => {
     const drive = new MemoryDrive();
     const adapter = new GoogleDriveCommitSyncAdapter(drive);
