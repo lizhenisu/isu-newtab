@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { createInitialConfig } from '../../core/domain/defaults';
+import { setAppLanguage } from '../../core/browser/i18n';
 import {
   CONTEXT_MENU_IDS,
   DESKTOP_CONTEXT_PORT,
@@ -10,7 +11,6 @@ import {
   type DesktopContextPortMessage,
 } from '../../core/browser/native-context-menu';
 import { registerDesktopContextMenus } from '../../core/browser/context-menu-controller';
-import { DashboardBoard } from '../../entrypoints/newtab/widgets/DashboardBoard';
 import { PieceBoard } from '../../entrypoints/newtab/widgets/PieceBoard';
 import type { Piece } from '../../core/domain/pieces';
 import { targetFromPointer } from '../../entrypoints/newtab/hooks/useNativeDesktopContextMenu';
@@ -97,6 +97,19 @@ describe('native desktop context menu', () => {
     expect(replacementPort.postMessage).toHaveBeenCalledWith({ type: 'action', action: 'edit', target: { kind: 'shortcut', key: 'shortcut:b' } });
   });
 
+  it('rebuilds native menu labels with the selected interface language', async () => {
+    const original = browser.i18n.getUILanguage;
+    Object.assign(browser.i18n, { getUILanguage: () => 'ja-JP' });
+    setAppLanguage('ja');
+    registerDesktopContextMenus();
+    await vi.waitFor(() => expect(browser.contextMenus.create).toHaveBeenCalledWith(expect.objectContaining({
+      id: CONTEXT_MENU_IDS.addShortcut,
+      title: 'ショートカットを追加',
+    })));
+    setAppLanguage('system');
+    Object.assign(browser.i18n, { getUILanguage: original });
+  });
+
   it('waits for initial menu creation before applying a port target update', async () => {
     let finishInitialCreation: (() => void) | undefined;
     vi.mocked(browser.contextMenus.removeAll).mockImplementationOnce(() => new Promise<void>((resolve) => { finishInitialCreation = resolve; }));
@@ -161,8 +174,11 @@ describe('native desktop context menu', () => {
       onAddShortcut: vi.fn(), onAddGroup: vi.fn(), onEditShortcut, onDeleteShortcut: vi.fn(),
       onRenameGroup: vi.fn(), onDeleteGroup: vi.fn(), onMoveShortcut: vi.fn(), onMoveGroup: vi.fn(),
     };
-    const { container } = render(<DashboardBoard layout={config.appearance.widgetLayout.value} context={context}
-      onDesktopCommit={vi.fn()} onWidgetEnabledChange={vi.fn()} />);
+    const shortcutPiece: Piece = {
+      id: 'piece:shortcut:a', kind: 'shortcut', payloadRef: 'a', container: { kind: 'desktop' },
+      position: { x: -24, y: 30, width: 4, height: 3 }, revision: { counter: 2, deviceId: 'test' },
+    };
+    const { container } = render(<PieceBoard pieces={[shortcutPiece]} context={context} />);
     const board = container.querySelector('.dashboardBoard')!;
     const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
     board.dispatchEvent(event);
