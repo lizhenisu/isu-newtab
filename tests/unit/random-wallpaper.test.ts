@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chooseRandomWallhaven, nextRandomWallpaperState, shouldDeferRandomWallpaperRefresh, wallpaperRefreshIntervalMs } from '../../core/wallpaper/random';
+import { chooseRandomWallhaven, isPreparedRandomWallpaperState, nextRandomWallpaperState, prepareRandomWallpaperState, shouldDeferRandomWallpaperRefresh, wallpaperRefreshIntervalMs } from '../../core/wallpaper/random';
 import { fetchWallhavenRandom } from '../../core/wallpaper/wallhaven';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -46,5 +46,16 @@ describe('random Wallhaven wallpaper', () => {
     expect(shouldDeferRandomWallpaperRefresh(expired, true, true, afterExpiry)).toBe(false);
     expect(shouldDeferRandomWallpaperRefresh(expired, false, false, afterExpiry)).toBe(false);
     expect(shouldDeferRandomWallpaperRefresh(undefined, false, false, afterExpiry)).toBe(false);
+  });
+
+  it('keeps the successor local and tied to the displayed wallpaper and interval', () => {
+    const next = prepareRandomWallpaperState(
+      { imageUrl: 'https://w.wallhaven.cc/full/ne/wallhaven-new.jpg', sourceUrl: 'https://wallhaven.cc/w/new', wallpaperId: 'new' },
+      'old',
+      '5h',
+      new Date('2026-08-23T00:00:00Z'),
+    );
+    expect(next).toMatchObject({ wallpaperId: 'new', currentWallpaperId: 'old', interval: '5h' });
+    expect(isPreparedRandomWallpaperState(next)).toBe(true);
   });
 });
