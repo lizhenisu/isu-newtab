@@ -38,6 +38,20 @@ describe('sync engine', () => {
     expect(JSON.stringify(envelope)).not.toContain('random-current');
   });
 
+  it('syncs Bing modes without device-local Bing blobs', () => {
+    const config = createInitialConfig(identity('a'));
+    config.appearance.wallpaper = { value: { type: 'bing-daily', quality: '1440p' }, revision: { counter: 2, deviceId: 'a' } };
+    expect(createEnvelope(config, { tombstones: [] }, { counter: 2, deviceId: 'a' }, 0).config.appearance.wallpaper?.value).toEqual({ type: 'bing-daily', quality: '1440p' });
+
+    config.appearance.wallpaper = {
+      value: { type: 'bing', imageUrl: 'https://www.bing.com/th?id=OHR.Test_1920x1080.jpg', sourceUrl: 'https://www.bing.com/search?q=test', date: '20260826', quality: '4k' },
+      revision: { counter: 3, deviceId: 'a' },
+    };
+    const envelope = createEnvelope(config, { tombstones: [] }, { counter: 3, deviceId: 'a' }, 0);
+    expect(envelope.config.appearance.wallpaper?.value).toEqual(config.appearance.wallpaper.value);
+    expect(JSON.stringify(envelope)).not.toContain('bing-daily-current');
+  });
+
   it('syncs Unsplash hotlink and attribution without API credentials', () => {
     const device = identity('a');
     const config = createInitialConfig(device);
