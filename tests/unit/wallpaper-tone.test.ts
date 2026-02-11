@@ -3,12 +3,13 @@ import { wallpaperTone } from '../../core/domain/wallpaper-tone';
 import { createInitialConfig, DEFAULT_SOLID_WALLPAPER_COLOR } from '../../core/domain/defaults';
 
 describe('wallpaper tone', () => {
-  it('uses pure white as the default solid wallpaper', () => {
+  it('uses Aurora as the default wallpaper while preserving white as the default solid color', () => {
     const config = createInitialConfig({ deviceId: 'test', counter: 0, epoch: 0 });
     expect(DEFAULT_SOLID_WALLPAPER_COLOR).toBe('#ffffff');
-    expect(config.appearance.wallpaper.value).toEqual({ type: 'solid', color: '#ffffff' });
+    expect(config.appearance.blur.value).toBe(0);
+    expect(config.appearance.wallpaper.value).toEqual({ type: 'builtin', assetId: 'aurora' });
     expect(config.appearance.solidColor.value).toBe('#ffffff');
-    expect(wallpaperTone(config.appearance.wallpaper.value)).toBe('light');
+    expect(wallpaperTone(config.appearance.wallpaper.value)).toBe('dark');
   });
 
   it.each(['#ffffff', '#f2f4f7', '#ffff00'])('recognizes light solid color %s', (color) => {
