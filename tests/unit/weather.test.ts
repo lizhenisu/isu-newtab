@@ -21,6 +21,10 @@ describe('weather forecast', () => {
 
   it('maps UI language and WMO weather codes deterministically', () => {
     expect(resolveTemperatureUnit('auto', 'zh-CN')).toBe('celsius');
+    expect(resolveTemperatureUnit('auto', 'zh-HK')).toBe('celsius');
+    expect(resolveTemperatureUnit('auto', 'zh-TW')).toBe('celsius');
+    expect(resolveTemperatureUnit('auto', 'ko')).toBe('celsius');
+    expect(resolveTemperatureUnit('auto', 'ja')).toBe('celsius');
     expect(resolveTemperatureUnit('auto', 'en')).toBe('fahrenheit');
     expect(resolveTemperatureUnit('fahrenheit', 'zh-CN')).toBe('fahrenheit');
     expect(weatherConditionForCode(0)).toBe('clear');
