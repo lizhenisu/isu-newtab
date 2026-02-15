@@ -8,6 +8,8 @@ import { migrateAppConfig } from '../../core/domain/migration';
 describe('dashboard component layout', () => {
   it('contains every registered component in the default order', () => {
     expect(createDefaultWidgetLayout().map((item) => item.id)).toEqual([...SYSTEM_WIDGET_IDS, 'addShortcut']);
+    expect(createDefaultWidgetLayout().filter((item) => item.enabled).map((item) => item.id)).toEqual(['search']);
+    expect(createDefaultWidgetLayout().find((item) => item.id === 'search')?.position).toMatchObject({ column: 14, row: 0, width: 20, height: 2 });
   });
 
   it('preserves user order and appends components introduced later', () => {
@@ -17,7 +19,7 @@ describe('dashboard component layout', () => {
     ]).slice(0, 3).map(({ id, enabled }) => ({ id, enabled }))).toEqual([
       { id: 'search', enabled: false },
       { id: 'clock', enabled: true },
-      { id: 'greeting', enabled: true },
+      { id: 'greeting', enabled: false },
     ]);
   });
 
@@ -48,12 +50,27 @@ describe('dashboard component layout', () => {
     expect(layout.find((item) => item.id === 'dailyQuote')?.position.width).toBe(16);
   });
 
-  it('adds the weather component hidden when upgrading an existing layout', () => {
+  it('adds newly introduced components with their hidden defaults when upgrading an existing layout', () => {
     const config = createInitialConfig({ deviceId: 'weather-upgrade', counter: 0, epoch: 0 });
-    config.appearance.widgetLayout.value = config.appearance.widgetLayout.value.filter((item) => item.id !== 'weather');
+    config.appearance.widgetLayout.value = config.appearance.widgetLayout.value.filter((item) => item.id !== 'weather' && item.id !== 'addShortcut');
 
     const migrated = migrateAppConfig(config);
     expect(migrated.appearance.widgetLayout.value.find((item) => item.id === 'weather')).toMatchObject({ enabled: false, sizePreset: 'medium' });
+    expect(migrated.appearance.widgetLayout.value.find((item) => item.id === 'addShortcut')).toMatchObject({ enabled: false });
+  });
+
+  it('preserves explicit appearance and visibility choices from existing configurations', () => {
+    const config = createInitialConfig({ deviceId: 'existing-user', counter: 0, epoch: 0 });
+    config.appearance.blur.value = 18;
+    config.appearance.wallpaper.value = { type: 'solid', color: '#4a7098' };
+    config.appearance.widgetLayout.value.find((item) => item.id === 'clock')!.enabled = true;
+    config.appearance.widgetLayout.value.find((item) => item.id === 'addShortcut')!.enabled = true;
+
+    const migrated = migrateAppConfig(config);
+    expect(migrated.appearance.blur.value).toBe(18);
+    expect(migrated.appearance.wallpaper.value).toEqual({ type: 'solid', color: '#4a7098' });
+    expect(migrated.appearance.widgetLayout.value.find((item) => item.id === 'clock')).toMatchObject({ enabled: true });
+    expect(migrated.appearance.widgetLayout.value.find((item) => item.id === 'addShortcut')).toMatchObject({ enabled: true });
   });
 
   it('keeps a snapped coordinate stable around a neighboring-cell boundary', () => {
