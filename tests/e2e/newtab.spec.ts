@@ -1,4 +1,4 @@
-import { expect, test, chromium, type BrowserContext } from '@playwright/test';
+import { expect, test, chromium, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -36,6 +36,154 @@ test.afterEach(async () => {
   await rm(profile, { recursive: true, force: true });
 });
 
+async function setWidgetVisibility(page: Page, id: string, enabled: boolean): Promise<void> {
+  await page.evaluate(async ({ id, enabled }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'pieces'], 'readwrite');
+    const configStore = transaction.objectStore('config');
+    const pieceStore = transaction.objectStore('pieces');
+    const configRequest = configStore.get('current');
+    const pieceRequest = pieceStore.get(id === 'addShortcut' ? 'piece:add-shortcut' : `piece:widget:${id}`);
+    const [config, piece] = await Promise.all([
+      new Promise<any>((resolve, reject) => { configRequest.onsuccess = () => resolve(configRequest.result); configRequest.onerror = () => reject(configRequest.error); }),
+      new Promise<any>((resolve, reject) => { pieceRequest.onsuccess = () => resolve(pieceRequest.result); pieceRequest.onerror = () => reject(pieceRequest.error); }),
+    ]);
+    config.appearance.widgetLayout.value.find((item: { id: string }) => item.id === id).enabled = enabled;
+    piece.container = { kind: enabled ? 'desktop' : 'hidden' };
+    configStore.put(config, 'current');
+    pieceStore.put(piece);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }, { id, enabled });
+  await page.reload();
+}
+
+async function setWidgetsVisibility(page: Page, ids: string[], enabled = true): Promise<void> {
+  await page.evaluate(async ({ ids, enabled }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'pieces'], 'readwrite');
+    const configStore = transaction.objectStore('config');
+    const pieceStore = transaction.objectStore('pieces');
+    const configRequest = configStore.get('current');
+    const piecesRequest = pieceStore.getAll();
+    const [config, pieces] = await Promise.all([
+      new Promise<any>((resolve, reject) => { configRequest.onsuccess = () => resolve(configRequest.result); configRequest.onerror = () => reject(configRequest.error); }),
+      new Promise<any[]>((resolve, reject) => { piecesRequest.onsuccess = () => resolve(piecesRequest.result); piecesRequest.onerror = () => reject(piecesRequest.error); }),
+    ]);
+    for (const id of ids) {
+      config.appearance.widgetLayout.value.find((item: { id: string }) => item.id === id).enabled = enabled;
+      const piece = pieces.find((item) => item.id === (id === 'addShortcut' ? 'piece:add-shortcut' : `piece:widget:${id}`));
+      if (piece) piece.container = { kind: enabled ? 'desktop' : 'hidden' };
+    }
+    configStore.put(config, 'current');
+    for (const piece of pieces) pieceStore.put(piece);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }, { ids, enabled });
+  await page.reload();
+}
+
+async function offsetWidgetRow(page: Page, id: string, rows: number): Promise<void> {
+  await page.evaluate(async ({ id, rows }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'pieces'], 'readwrite');
+    const configStore = transaction.objectStore('config');
+    const pieceStore = transaction.objectStore('pieces');
+    const configRequest = configStore.get('current');
+    const pieceRequest = pieceStore.get(`piece:widget:${id}`);
+    const [config, piece] = await Promise.all([
+      new Promise<any>((resolve, reject) => { configRequest.onsuccess = () => resolve(configRequest.result); configRequest.onerror = () => reject(configRequest.error); }),
+      new Promise<any>((resolve, reject) => { pieceRequest.onsuccess = () => resolve(pieceRequest.result); pieceRequest.onerror = () => reject(pieceRequest.error); }),
+    ]);
+    const layout = config.appearance.widgetLayout.value.find((item: { id: string }) => item.id === id);
+    layout.position.row += rows;
+    piece.position.y += rows;
+    configStore.put(config, 'current');
+    pieceStore.put(piece);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }, { id, rows });
+  await page.reload();
+}
+
+async function expectFilledWallpaperPreview(button: Locator): Promise<void> {
+  await expect(button).toHaveCSS('padding-top', '0px');
+  await expect(button).toHaveCSS('padding-right', '0px');
+  const geometry = await button.evaluate((element) => {
+    const buttonRect = element.getBoundingClientRect();
+    const imageRect = element.querySelector('img')!.getBoundingClientRect();
+    return { buttonWidth: buttonRect.width, buttonHeight: buttonRect.height, imageWidth: imageRect.width, imageHeight: imageRect.height };
+  });
+  expect(geometry.imageWidth).toBeCloseTo(geometry.buttonWidth, 1);
+  expect(geometry.imageHeight).toBeCloseTo(geometry.buttonHeight, 1);
+}
+
+async function expectStableLiquidGlassHover(page: Page, surface: Locator): Promise<void> {
+  const before = await surface.evaluate((element) => {
+    const pseudo = getComputedStyle(element, '::before');
+    return {
+      layout: {
+        left: (element as HTMLElement).offsetLeft,
+        top: (element as HTMLElement).offsetTop,
+        width: (element as HTMLElement).offsetWidth,
+        height: (element as HTMLElement).offsetHeight,
+      },
+      transform: pseudo.transform,
+      backgroundPosition: pseudo.backgroundPosition,
+      transition: pseudo.transitionProperty,
+    };
+  });
+  expect(before.transform).toBe('none');
+  expect(before.transition).toContain('background-position');
+
+  await surface.hover();
+  await page.waitForTimeout(350);
+  const after = await surface.evaluate((element) => {
+    const pseudo = getComputedStyle(element, '::before');
+    return {
+      layout: {
+        left: (element as HTMLElement).offsetLeft,
+        top: (element as HTMLElement).offsetTop,
+        width: (element as HTMLElement).offsetWidth,
+        height: (element as HTMLElement).offsetHeight,
+      },
+      transform: pseudo.transform,
+      backgroundPosition: pseudo.backgroundPosition,
+    };
+  });
+  expect(after.layout).toEqual(before.layout);
+  expect(after.transform).toBe('none');
+  expect(after.backgroundPosition).not.toBe(before.backgroundPosition);
+}
+
+async function expectLiquidGlassForeground(surface: Locator): Promise<void> {
+  const layers = await surface.evaluate((element) => ({
+    highlight: getComputedStyle(element, '::before').zIndex,
+    children: Array.from(element.children).map((child) => getComputedStyle(child).zIndex),
+  }));
+  expect(layers.highlight).toBe('0');
+  expect(layers.children).not.toHaveLength(0);
+  expect(layers.children).toEqual(layers.children.map(() => '1'));
+}
+
 test('centers the mobile piece board and fills the search piece', async () => {
   if (!context) throw new Error('Browser context was not created');
   let serviceWorker = context.serviceWorkers()[0];
@@ -55,6 +203,8 @@ test('centers the mobile piece board and fills the search piece', async () => {
     }));
     await page.goto(`chrome-extension://${extensionId}/newtab.html`);
     await expect(page.locator('.pieceBoard')).toBeVisible();
+    await expect(page.locator('.pieceBoard')).toHaveCSS('min-height', '0px');
+    expect(await page.locator('.pieceBoard').evaluate((board) => getComputedStyle(board, '::before').display)).toBe('none');
     const gutters = await page.locator('.pieceBoard').evaluate((board) => {
       const rect = board.getBoundingClientRect();
       return { left: rect.left, right: window.innerWidth - rect.right };
@@ -79,6 +229,547 @@ test('centers the mobile piece board and fills the search piece', async () => {
   }
 });
 
+test('extends the desktop grid to the viewport or the lowest piece', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  const board = page.locator('.pieceBoard');
+  await expect(board).toBeVisible();
+
+  const initial = await board.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const grid = getComputedStyle(element, '::before');
+    return { top: rect.top, bottom: rect.bottom, viewport: window.innerHeight, backgroundSize: grid.backgroundSize };
+  });
+  expect(initial.bottom).toBeGreaterThanOrEqual(initial.viewport - .5);
+  expect(initial.backgroundSize).toContain('40px');
+
+  const placements = async () => page.locator('[data-piece-id]').evaluateAll((elements) => Object.fromEntries(elements.map((element) => [
+    (element as HTMLElement).dataset.pieceId,
+    { column: getComputedStyle(element).gridColumnStart, row: getComputedStyle(element).gridRowStart },
+  ])));
+  const beforeResize = await placements();
+  await page.setViewportSize({ width: 1280, height: 1120 });
+  await expect.poll(() => board.evaluate((element) => element.getBoundingClientRect().bottom)).toBeGreaterThanOrEqual(1119.5);
+  expect(await placements()).toEqual(beforeResize);
+
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction('pieces', 'readwrite');
+    const store = transaction.objectStore('pieces');
+    const request = store.get('piece:add-shortcut');
+    const piece = await new Promise<any>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    piece.container = { kind: 'desktop' };
+    piece.position = { x: 0, y: 30, width: 4, height: 3 };
+    store.put(piece);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  });
+  await page.reload();
+  await expect(page.locator('[data-piece-id="piece:add-shortcut"]')).toHaveCSS('grid-row-start', '31');
+  await expect.poll(() => board.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(1400);
+});
+
+test('keeps large displaced widgets visually continuous during bottom auto-scroll', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  const viewport = { width: 1778, height: 634 };
+  await page.setViewportSize(viewport);
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'pieces'], 'readwrite');
+    const configStore = transaction.objectStore('config');
+    const configRequest = configStore.get('current');
+    const config = await new Promise<any>((resolve, reject) => {
+      configRequest.onsuccess = () => resolve(configRequest.result);
+      configRequest.onerror = () => reject(configRequest.error);
+    });
+    const revision = { counter: 9_000, deviceId: 'large-bottom-scroll-e2e' };
+    const widgetPositions = {
+      focusTimer: { column: 17, row: 12, width: 14, height: 6, gridVersion: 3 },
+      quickNote: { column: 10, row: 19, width: 28, height: 7, gridVersion: 3 },
+    };
+    config.appearance.widgetLayout.value.forEach((item: { id: string; enabled: boolean; position?: unknown; sizePreset?: string }) => {
+      item.enabled = item.id === 'focusTimer' || item.id === 'quickNote';
+      if (item.id === 'focusTimer' || item.id === 'quickNote') {
+        item.sizePreset = 'medium';
+        item.position = widgetPositions[item.id as keyof typeof widgetPositions];
+      }
+    });
+    config.shortcuts = [];
+    const pieceStore = transaction.objectStore('pieces');
+    pieceStore.clear();
+    pieceStore.put({ id: 'piece:widget:focusTimer', kind: 'system-widget', payloadRef: 'focusTimer', container: { kind: 'desktop' }, position: { x: -7, y: 12, width: 14, height: 6 }, revision });
+    pieceStore.put({ id: 'piece:widget:quickNote', kind: 'system-widget', payloadRef: 'quickNote', container: { kind: 'desktop' }, position: { x: -14, y: 19, width: 28, height: 7 }, revision });
+    configStore.put(config, 'current');
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  });
+  await page.reload();
+
+  const focusTimer = page.locator('[data-piece-id="piece:widget:focusTimer"]');
+  const quickNote = page.locator('[data-piece-id="piece:widget:quickNote"]');
+  const quickNoteBox = await quickNote.boundingBox();
+  if (!quickNoteBox) throw new Error('Bottom-edge quick note was not measurable');
+  await page.evaluate(({ noteTop, viewportHeight }) => {
+    window.scrollTo(0, Math.max(0, noteTop - (viewportHeight - 80)));
+  }, { noteTop: quickNoteBox.y, viewportHeight: viewport.height });
+  await expect.poll(() => quickNote.evaluate((element) => Math.round(element.getBoundingClientRect().top))).toBe(viewport.height - 80);
+
+  const activeBox = await focusTimer.boundingBox();
+  if (!activeBox) throw new Error('Bottom-edge focus timer was not measurable');
+  await page.mouse.move(activeBox.x + activeBox.width / 2, activeBox.y + activeBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  await expect(page.locator('.pieceBoard')).toHaveCSS('overflow-anchor', 'none');
+  await page.evaluate(() => {
+    const recordedWindow = window as typeof window & {
+      __bottomScrollFrame?: number;
+      __bottomScrollSamples?: Array<{ blockerRow: number; boardRows: number; scrollY: number; top: number }>;
+    };
+    recordedWindow.__bottomScrollSamples = [];
+    const record = () => {
+      const blocker = document.querySelector<HTMLElement>('[data-piece-id="piece:widget:quickNote"]');
+      const board = document.querySelector<HTMLElement>('.pieceBoard');
+      if (blocker && board) {
+        recordedWindow.__bottomScrollSamples!.push({
+          blockerRow: Number.parseInt(getComputedStyle(blocker).gridRowStart, 10) - 1,
+          boardRows: Number(board.style.getPropertyValue('--piece-rows')),
+          scrollY: window.scrollY,
+          top: blocker.getBoundingClientRect().top,
+        });
+      }
+      recordedWindow.__bottomScrollFrame = requestAnimationFrame(record);
+    };
+    record();
+  });
+
+  for (let step = 1; step <= 40; step += 1) {
+    await page.mouse.move(activeBox.x + activeBox.width / 2, activeBox.y + activeBox.height / 2 + step * 2);
+    await page.waitForTimeout(30);
+  }
+  await expect(quickNote).toHaveClass(/isDisplaced/);
+  await page.waitForTimeout(1_000);
+  const samples = await page.evaluate(() => {
+    const recordedWindow = window as typeof window & {
+      __bottomScrollFrame?: number;
+      __bottomScrollSamples?: Array<{ blockerRow: number; boardRows: number; scrollY: number; top: number }>;
+    };
+    if (recordedWindow.__bottomScrollFrame !== undefined) cancelAnimationFrame(recordedWindow.__bottomScrollFrame);
+    return recordedWindow.__bottomScrollSamples ?? [];
+  });
+  const neverDecreases = (values: number[], tolerance = 0) => values.every((value, index) => index === 0 || value + tolerance >= values[index - 1]!);
+  expect(neverDecreases(samples.map((sample) => sample.blockerRow))).toBe(true);
+  expect(neverDecreases(samples.map((sample) => sample.boardRows))).toBe(true);
+  expect(neverDecreases(samples.map((sample) => sample.scrollY), 1)).toBe(true);
+  expect(samples.at(-1)!.blockerRow).toBeGreaterThan(19);
+
+  const rowTransitionJumps = samples.slice(1).flatMap((sample, index) => (
+    sample.blockerRow === samples[index]!.blockerRow
+      ? []
+      : [Math.abs(sample.top - samples[index]!.top)]
+  ));
+  expect(rowTransitionJumps.length).toBeGreaterThan(0);
+  expect(Math.max(...rowTransitionJumps)).toBeLessThan(20);
+
+  await page.mouse.up();
+  await expect(page.locator('.pieceBoard')).not.toHaveClass(/pieceBoard--dragging/);
+  await expect(page.locator('.pieceBoard')).not.toHaveCSS('overflow-anchor', 'none');
+});
+
+test('keeps an adjacent piece fixed while dragging its neighbor across it', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'pieces'], 'readwrite');
+    const configStore = transaction.objectStore('config');
+    const configRequest = configStore.get('current');
+    const config = await new Promise<any>((resolve, reject) => {
+      configRequest.onsuccess = () => resolve(configRequest.result);
+      configRequest.onerror = () => reject(configRequest.error);
+    });
+    const revision = { counter: 9_100, deviceId: 'adjacent-pass-through-e2e' };
+    config.appearance.widgetLayout.value.forEach((item: { enabled: boolean }) => { item.enabled = false; });
+    config.shortcuts = [
+      { id: 'cross-active', groupId: 'default', name: 'Cross active', url: 'https://example.com/active', sortKey: 'a0', revision, position: { column: 24, row: 5, width: 4, height: 3, gridVersion: 3 } },
+      { id: 'cross-blocker', groupId: 'default', name: 'Cross blocker', url: 'https://example.com/blocker', sortKey: 'a1', revision, position: { column: 24, row: 8, width: 4, height: 3, gridVersion: 3 } },
+    ];
+    const pieceStore = transaction.objectStore('pieces');
+    pieceStore.clear();
+    pieceStore.put({ id: 'piece:shortcut:cross-active', kind: 'shortcut', payloadRef: 'cross-active', container: { kind: 'desktop' }, position: { x: 0, y: 5, width: 4, height: 3 }, revision });
+    pieceStore.put({ id: 'piece:shortcut:cross-blocker', kind: 'shortcut', payloadRef: 'cross-blocker', container: { kind: 'desktop' }, position: { x: 0, y: 8, width: 4, height: 3 }, revision });
+    configStore.put(config, 'current');
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  });
+  await page.reload();
+
+  const active = page.locator('[data-piece-id="piece:shortcut:cross-active"]');
+  const blocker = page.locator('[data-piece-id="piece:shortcut:cross-blocker"]');
+  const activeBox = await active.boundingBox();
+  if (!activeBox) throw new Error('Adjacent active piece was not measurable');
+  const blockerBefore = await blocker.evaluate((element) => ({
+    row: getComputedStyle(element).gridRowStart,
+    top: element.getBoundingClientRect().top,
+  }));
+  await page.mouse.move(activeBox.x + activeBox.width / 2, activeBox.y + activeBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+
+  const samples: Array<{ row: string; top: number; displaced: boolean; motion: string | null }> = [];
+  for (let step = 1; step <= 6; step += 1) {
+    await page.mouse.move(activeBox.x + activeBox.width / 2, activeBox.y + activeBox.height / 2 + step * 40);
+    await page.waitForTimeout(400);
+    samples.push(await blocker.evaluate((element) => ({
+      row: getComputedStyle(element).gridRowStart,
+      top: element.getBoundingClientRect().top,
+      displaced: element.classList.contains('isDisplaced'),
+      motion: element.getAttribute('data-layout-motion'),
+    })));
+  }
+  expect(samples.every((sample) => sample.row === blockerBefore.row)).toBe(true);
+  expect(samples.every((sample) => Math.abs(sample.top - blockerBefore.top) < .5)).toBe(true);
+  expect(samples.every((sample) => !sample.displaced && sample.motion === null)).toBe(true);
+
+  await page.mouse.up();
+  await expect(active).toHaveCSS('grid-row-start', '12');
+  await expect(blocker).toHaveCSS('grid-row-start', '9');
+  await expect(blocker).not.toHaveClass(/isDisplaced/);
+  await expect(blocker).not.toHaveAttribute('data-layout-motion', /.+/);
+  await page.reload();
+  await expect(active).toHaveCSS('grid-row-start', '12');
+  await expect(blocker).toHaveCSS('grid-row-start', '9');
+
+  const restoredActiveBox = await active.boundingBox();
+  if (!restoredActiveBox) throw new Error('Passed-through active piece was not measurable');
+  await page.mouse.move(restoredActiveBox.x + restoredActiveBox.width / 2, restoredActiveBox.y + restoredActiveBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  await page.mouse.move(restoredActiveBox.x + restoredActiveBox.width / 2, restoredActiveBox.y + restoredActiveBox.height / 2 - 40);
+  await page.waitForTimeout(400);
+  await expect(blocker).toHaveCSS('grid-row-start', '9');
+  await expect(blocker).not.toHaveClass(/isDisplaced/);
+  await page.mouse.up();
+  await expect(active).toHaveCSS('grid-row-start', '12');
+  await expect(blocker).toHaveCSS('grid-row-start', '9');
+
+  const dwellActiveBox = await active.boundingBox();
+  if (!dwellActiveBox) throw new Error('Restored active piece was not measurable for dwell displacement');
+  await page.mouse.move(dwellActiveBox.x + dwellActiveBox.width / 2, dwellActiveBox.y + dwellActiveBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  await page.mouse.move(dwellActiveBox.x + dwellActiveBox.width / 2, dwellActiveBox.y + dwellActiveBox.height / 2 - 40);
+  await page.waitForTimeout(450);
+  await expect(blocker).not.toHaveClass(/isDisplaced/);
+  await page.waitForTimeout(250);
+  await expect(blocker).toHaveClass(/isDisplaced/);
+  await page.mouse.move(dwellActiveBox.x + dwellActiveBox.width / 2 + 160, dwellActiveBox.y + dwellActiveBox.height / 2 - 40);
+  await expect(blocker).not.toHaveClass(/isDisplaced/);
+  await page.mouse.move(dwellActiveBox.x + dwellActiveBox.width / 2, dwellActiveBox.y + dwellActiveBox.height / 2 - 40);
+  await page.waitForTimeout(450);
+  await expect(blocker).not.toHaveClass(/isDisplaced/);
+  await page.waitForTimeout(250);
+  await expect(blocker).toHaveClass(/isDisplaced/);
+  await page.mouse.up();
+});
+
+test('lets a horizontally adjacent piece cross to a free vertical side', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'pieces'], 'readwrite');
+    const configStore = transaction.objectStore('config');
+    const request = configStore.get('current');
+    const config = await new Promise<any>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const revision = { counter: 9_101, deviceId: 'side-cross-e2e' };
+    config.appearance.widgetLayout.value.forEach((item: { enabled: boolean }) => { item.enabled = false; });
+    config.shortcuts = [
+      { id: 'side-active', groupId: 'default', name: 'Side active', url: 'https://example.com/side-active', sortKey: 'a0', revision, position: { column: 20, row: 8, width: 4, height: 3, gridVersion: 3 } },
+      { id: 'side-blocker', groupId: 'default', name: 'Side blocker', url: 'https://example.com/side-blocker', sortKey: 'a1', revision, position: { column: 24, row: 8, width: 4, height: 3, gridVersion: 3 } },
+    ];
+    const pieceStore = transaction.objectStore('pieces');
+    pieceStore.clear();
+    pieceStore.put({ id: 'piece:shortcut:side-active', kind: 'shortcut', payloadRef: 'side-active', container: { kind: 'desktop' }, position: { x: -4, y: 8, width: 4, height: 3 }, revision });
+    pieceStore.put({ id: 'piece:shortcut:side-blocker', kind: 'shortcut', payloadRef: 'side-blocker', container: { kind: 'desktop' }, position: { x: 0, y: 8, width: 4, height: 3 }, revision });
+    configStore.put(config, 'current');
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  });
+  await page.reload();
+
+  const active = page.locator('[data-piece-id="piece:shortcut:side-active"]');
+  const blocker = page.locator('[data-piece-id="piece:shortcut:side-blocker"]');
+  const [activeBox, blockerBox] = await Promise.all([active.boundingBox(), blocker.boundingBox()]);
+  if (!activeBox || !blockerBox) throw new Error('Horizontal crossing pieces were not measurable');
+  const blockerPlacement = await blocker.evaluate((element) => ({
+    column: getComputedStyle(element).gridColumnStart,
+    row: getComputedStyle(element).gridRowStart,
+  }));
+  await page.mouse.move(activeBox.x + activeBox.width / 2, activeBox.y + activeBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  await page.mouse.move(blockerBox.x + blockerBox.width / 2, blockerBox.y + blockerBox.height / 2);
+  await page.waitForTimeout(400);
+  await expect(blocker).not.toHaveClass(/isDisplaced/);
+  await page.mouse.move(blockerBox.x + blockerBox.width / 2, blockerBox.y - activeBox.height / 2);
+  await page.mouse.up();
+
+  await expect(blocker).toHaveCSS('grid-column-start', blockerPlacement.column);
+  await expect(blocker).toHaveCSS('grid-row-start', blockerPlacement.row);
+  await expect(active).toHaveCSS('grid-column-start', blockerPlacement.column);
+  await expect(active).toHaveCSS('grid-row-start', String(Number(blockerPlacement.row) - 3));
+  await page.reload();
+  await expect(active).toHaveCSS('grid-column-start', blockerPlacement.column);
+  await expect(active).toHaveCSS('grid-row-start', String(Number(blockerPlacement.row) - 3));
+  await expect(blocker).toHaveCSS('grid-column-start', blockerPlacement.column);
+  await expect(blocker).toHaveCSS('grid-row-start', blockerPlacement.row);
+});
+
+test('fits adjacent icon pieces inside their grid cells on medium narrow screens', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 703, height: 935 });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await expect(page.locator('.pieceBoard')).toBeVisible();
+
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'pieces'], 'readwrite');
+    const configRequest = transaction.objectStore('config').get('current');
+    const addPieceRequest = transaction.objectStore('pieces').get('piece:add-shortcut');
+    const [config, addPiece] = await Promise.all([
+      new Promise<any>((resolve, reject) => { configRequest.onsuccess = () => resolve(configRequest.result); configRequest.onerror = () => reject(configRequest.error); }),
+      new Promise<any>((resolve, reject) => { addPieceRequest.onsuccess = () => resolve(addPieceRequest.result); addPieceRequest.onerror = () => reject(addPieceRequest.error); }),
+    ]);
+    const revision = { counter: 900, deviceId: 'e2e' };
+    config.groups = config.groups.filter((group: { id: string }) => group.id !== 'narrow-folder');
+    config.shortcuts = config.shortcuts.filter((shortcut: { id: string }) => shortcut.id !== 'narrow-folder-shortcut');
+    config.groups.push({ id: 'narrow-folder', name: 'Narrow folder', collapsed: false, sortKey: 'z0', revision, position: { column: 20, row: 4, width: 4, height: 3, gridVersion: 3 } });
+    config.shortcuts.push({ id: 'narrow-folder-shortcut', groupId: 'narrow-folder', name: 'Narrow icon', url: 'https://example.com/narrow', sortKey: 'a0', revision });
+    const addLayout = config.appearance.widgetLayout.value.find((item: { id: string }) => item.id === 'addShortcut');
+    addLayout.enabled = true;
+    addLayout.position = { column: 24, row: 4, width: 4, height: 3, gridVersion: 3 };
+    addPiece.container = { kind: 'desktop' };
+    addPiece.position = { x: 0, y: 4, width: 4, height: 3 };
+    transaction.objectStore('config').put(config, 'current');
+    transaction.objectStore('pieces').put(addPiece);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  });
+  await page.reload();
+
+  const folder = page.locator('[data-desktop-key="folder:narrow-folder"]');
+  const addTile = page.locator('[data-desktop-key="add-shortcut"]');
+  const folderPreview = folder.locator('.folderPreview');
+  const addIcon = addTile.locator('.pieceAdd > span');
+  await expect(folder).toBeVisible();
+  await expect(addTile).toBeVisible();
+  const [folderRect, addRect, folderPreviewRect, addIconRect] = await Promise.all([
+    folder.boundingBox(), addTile.boundingBox(), folderPreview.boundingBox(), addIcon.boundingBox(),
+  ]);
+  if (!folderRect || !addRect || !folderPreviewRect || !addIconRect) throw new Error('Narrow icon pieces were not measurable');
+  expect(folderPreviewRect.width).toBeLessThanOrEqual(folderRect.width + .5);
+  expect(addIconRect.width).toBeLessThanOrEqual(addRect.width + .5);
+  expect(folderPreviewRect.x + folderPreviewRect.width).toBeLessThanOrEqual(addIconRect.x + .5);
+  await expect(folderPreview.locator('> span')).toHaveCount(1);
+  await expect(folderPreview.locator('> span').first()).toHaveCSS('width', /px$/);
+
+  await page.setViewportSize({ width: 1280, height: 935 });
+  await expect(folderPreview).toHaveCSS('width', '82px');
+  await expect(addIcon).toHaveCSS('width', '58px');
+  await page.setViewportSize({ width: 640, height: 935 });
+  await expect(page.locator('.pieceBoard')).toHaveCSS('display', 'flex');
+});
+
+test('keeps liquid-glass hover highlights inside stable desktop components', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await setWidgetsVisibility(page, ['addShortcut', 'weather', 'quickNote', 'focusTimer']);
+
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'pieces'], 'readwrite');
+    const configRequest = transaction.objectStore('config').get('current');
+    const config = await new Promise<any>((resolve, reject) => {
+      configRequest.onsuccess = () => resolve(configRequest.result);
+      configRequest.onerror = () => reject(configRequest.error);
+    });
+    const revision = { counter: 901, deviceId: 'e2e' };
+    config.groups.push({ id: 'glass-folder', name: 'Glass folder', collapsed: false, sortKey: 'glass', revision });
+    config.shortcuts.push({ id: 'glass-folder-shortcut', groupId: 'glass-folder', name: 'Glass icon', url: 'https://example.com/glass', sortKey: 'glass', revision });
+    transaction.objectStore('config').put(config, 'current');
+    transaction.objectStore('pieces').put({ id: 'piece:folder:glass-folder', kind: 'folder', payloadRef: 'glass-folder', container: { kind: 'desktop' }, position: { x: -20, y: 25, width: 4, height: 3 }, revision });
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  });
+  await page.reload();
+
+  const surfaces = [
+    page.locator('form.search'),
+    page.locator('.weatherWidget'),
+    page.locator('.quickNote'),
+    page.locator('.timerModes'),
+    page.locator('.roundControl').first(),
+    page.locator('.focusState'),
+  ];
+  for (const surface of surfaces) {
+    await expect(surface).toBeVisible();
+    await expectStableLiquidGlassHover(page, surface);
+    await expectLiquidGlassForeground(surface);
+  }
+  const folderPreview = page.locator('.folderPreview');
+  const restingFolderStyle = await folderPreview.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { borderColor: style.borderColor, boxShadow: style.boxShadow };
+  });
+  await folderPreview.hover();
+  await page.waitForTimeout(250);
+  const hoveredFolderStyle = await folderPreview.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { transform: style.transform, borderColor: style.borderColor, boxShadow: style.boxShadow };
+  });
+  expect(hoveredFolderStyle.transform).toMatch(/^matrix\(1\.08,/);
+  expect(hoveredFolderStyle.borderColor).toBe(restingFolderStyle.borderColor);
+  expect(hoveredFolderStyle.boxShadow).toBe(restingFolderStyle.boxShadow);
+  await expectLiquidGlassForeground(folderPreview);
+  await page.locator('[data-desktop-key="folder:glass-folder"] .pieceFolder').click();
+  await expectLiquidGlassForeground(page.locator('.folderSurface'));
+});
+
+test('renders the settings control as a water surface while retaining its gear rotation', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+
+  const settings = page.locator('.settingsButton');
+  await expect(settings).toHaveClass(/shortcutWaterShell/);
+  await expect(settings).not.toHaveClass(/liquidGlassSurface/);
+  await expect(settings).toHaveCSS('backdrop-filter', 'none');
+  await expect(settings.locator('> span')).toHaveCSS('z-index', '3');
+  await settings.hover();
+  await expect.poll(() => settings.evaluate((element) => getComputedStyle(element, '::before').animationName)).toBe('shortcut-water-bubble-hover');
+  await expect.poll(() => settings.evaluate((element) => getComputedStyle(element).transform)).not.toBe('none');
+  await settings.click();
+  await expect(page.getByRole('dialog', { name: /Settings|设置/ })).toBeVisible();
+});
+
+test('renders the add-shortcut icon as the water surface', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await setWidgetVisibility(page, 'addShortcut', true);
+
+  const addIcon = page.locator('.pieceAdd > .shortcutWaterShell');
+  await expect(addIcon).toBeVisible();
+  await expect(addIcon).not.toHaveClass(/liquidGlassSurface/);
+  await expect(addIcon.locator('svg.shortcutWaterShell__plus path')).toHaveAttribute('d', 'M12 5v14M5 12h14');
+  await expect(addIcon).toHaveCSS('border-style', 'solid');
+  await expect(addIcon).toHaveCSS('backdrop-filter', 'none');
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await addIcon.hover();
+  const animationName = await addIcon.evaluate((element) => getComputedStyle(element, '::before').animationName);
+  expect(animationName).toBe('none');
+});
+
+test('freezes liquid-glass flow when reduced motion is requested', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  const settings = page.locator('.settingsButton');
+  const before = await settings.evaluate((element) => {
+    const pseudo = getComputedStyle(element, '::before');
+    return { backgroundPosition: pseudo.backgroundPosition, opacity: pseudo.opacity, transition: pseudo.transitionProperty };
+  });
+  await settings.hover();
+  await page.waitForTimeout(350);
+  const after = await settings.evaluate((element) => {
+    const pseudo = getComputedStyle(element, '::before');
+    return { backgroundPosition: pseudo.backgroundPosition, opacity: pseudo.opacity, transition: pseudo.transitionProperty };
+  });
+  expect(before.transition).toBe('none');
+  expect(after).toEqual(before);
+});
+
 test('loads the extension, creates a shortcut, and persists it after reload', async () => {
   if (!context) throw new Error('Browser context was not created');
   let serviceWorker = context.serviceWorkers()[0];
@@ -91,7 +782,7 @@ test('loads the extension, creates a shortcut, and persists it after reload', as
   expect(manifest.permissions).toContain('geolocation');
   expect(manifest.optional_permissions).toContain('history');
   expect(manifest.optional_permissions).not.toContain('geolocation');
-  expect(manifest.host_permissions).toEqual(expect.arrayContaining(['https://v1.hitokoto.cn/*', 'https://zenquotes.io/*', 'https://www.bing.com/AS/*', 'https://api.open-meteo.com/*', 'https://nominatim.openstreetmap.org/*']));
+  expect(manifest.host_permissions).toEqual(expect.arrayContaining(['https://v1.hitokoto.cn/*', 'https://zenquotes.io/*', 'https://www.bing.com/*', 'https://*.gstatic.com/*', 'https://api.open-meteo.com/*', 'https://nominatim.openstreetmap.org/*']));
   expect(JSON.stringify(manifest)).not.toContain('lens.google.com');
   expect(manifest.icons).toMatchObject({ 16: 'icons/isu-16.png', 32: 'icons/isu-32.png', 48: 'icons/isu-48.png', 128: 'icons/isu-128.png' });
   const page = await context.newPage();
@@ -102,8 +793,14 @@ test('loads the extension, creates a shortcut, and persists it after reload', as
   await expect(page).toHaveTitle(/New Tab|新标签页/);
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/chrome-newtab.svg');
   await expect(page.getByRole('textbox', { name: /Search the web|搜索互联网/, exact: true })).toBeVisible();
-  await expect(page.locator('#quick-note')).toHaveCSS('min-height', '132px');
+  await expect(page.locator('#quick-note')).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  const addShortcutComponent = page.getByRole('checkbox', { name: /Add shortcut|添加快捷方式/, exact: true });
+  await expect(addShortcutComponent).not.toBeChecked();
+  await addShortcutComponent.check();
+  await page.getByRole('button', { name: /Close|关闭/ }).click();
+  await expect(page.getByRole('button', { name: /Add shortcut|添加快捷方式/ })).toBeVisible();
   await page.getByRole('button', { name: /Add shortcut|添加快捷方式/ }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toHaveClass(/modal--editor/);
@@ -121,6 +818,28 @@ test('loads the extension, creates a shortcut, and persists it after reload', as
   });
   expect(closeAlignment.x).toBeLessThan(.5);
   expect(closeAlignment.y).toBeLessThan(.5);
+  const iconInput = dialog.getByLabel(/Choose local image|选择本机图片/, { exact: true });
+  await iconInput.setInputFiles({
+    name: 'centered-icon.svg',
+    mimeType: 'image/svg+xml',
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" fill="#1a73e8"/></svg>'),
+  });
+  await expect(dialog.getByTitle('centered-icon.svg')).toBeVisible();
+  const clearIcon = dialog.getByRole('button', { name: /Clear icon|清除图标/, exact: true });
+  await expect(clearIcon).toHaveCSS('display', 'grid');
+  await expect(clearIcon).toHaveCSS('padding-top', '0px');
+  await clearIcon.hover();
+  await expect(clearIcon).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  const clearAlignment = await clearIcon.evaluate((button) => {
+    const buttonRect = button.getBoundingClientRect();
+    const iconRect = button.querySelector('svg')!.getBoundingClientRect();
+    return {
+      x: Math.abs(buttonRect.left + buttonRect.width / 2 - iconRect.left - iconRect.width / 2),
+      y: Math.abs(buttonRect.top + buttonRect.height / 2 - iconRect.top - iconRect.height / 2),
+    };
+  });
+  expect(clearAlignment.x).toBeLessThanOrEqual(1);
+  expect(clearAlignment.y).toBeLessThanOrEqual(1);
   await dialog.getByLabel(/Name|名称/).fill('OpenAI');
   await dialog.getByLabel(/URL|网址/).fill('openai.com');
   await dialog.getByRole('button', { name: /Save|保存/ }).click();
@@ -155,7 +874,9 @@ test('uses the selected engine for text and visual search in the current tab', a
     contentType: 'text/html',
     body: '<title>Google Images</title>',
   }));
-  await page.getByRole('button', { name: /Open Google Images|打开 Google 图片搜索/ }).click();
+  const googleVisualSearch = page.getByRole('button', { name: /Open Google Images|打开 Google 图片搜索/ });
+  await expect(googleVisualSearch.locator('.googleLensIcon')).toBeVisible();
+  await googleVisualSearch.click();
   await expect(page).toHaveURL(/https:\/\/images\.google\.com\/\?hl=/);
 
   await page.goto(`chrome-extension://${extensionId}/newtab.html`);
@@ -165,7 +886,8 @@ test('uses the selected engine for text and visual search in the current tab', a
   await engine.selectOption('bing');
   await expect(engine).toHaveValue('bing');
   await page.getByRole('button', { name: /Close|关闭/ }).click();
-  await expect(page.getByRole('button', { name: /Open Bing Images|打开 Bing 图片搜索/ })).toBeVisible();
+  const bingVisualSearch = page.getByRole('button', { name: /Open Bing Images|打开 Bing 图片搜索/ });
+  await expect(bingVisualSearch.locator('.googleLensIcon')).toBeVisible();
 
   await context.route('https://www.bing.com/search**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>Bing Search</title>' }));
   await page.getByRole('textbox', { name: /Search the web|搜索互联网/ }).fill('Isu NewTab');
@@ -176,8 +898,110 @@ test('uses the selected engine for text and visual search in the current tab', a
   await expect(page.getByLabel(/Search engine|搜索引擎/)).toHaveCount(0);
   await expect(page.getByRole('textbox', { name: /Search the web|搜索互联网/ })).toHaveAttribute('placeholder', /Search Bing|在 Bing/);
   await context.route('https://www.bing.com/images**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>Bing Images</title>' }));
-  await page.getByRole('button', { name: /Open Bing Images|打开 Bing 图片搜索/ }).click();
+  await bingVisualSearch.click();
   await expect(page).toHaveURL(/https:\/\/www\.bing\.com\/images\?setlang=/);
+});
+
+test('scrolls keyboard-selected search suggestions without moving the page', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.route('https://www.google.com/search**', (route) => route.fulfill({
+    contentType: 'text/html', body: '<title>Keyboard history result</title>',
+  }));
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction('settings', 'readwrite');
+    transaction.objectStore('settings').put(Array.from({ length: 8 }, (_, index) => ({
+      query: `keyboard history ${index + 1}`,
+      searchedAt: new Date(Date.now() - index * 1_000).toISOString(),
+    })), 'searchHistory');
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  });
+  await page.addStyleTag({ content: '.searchSuggestions { max-height: 132px !important; }' });
+  const input = page.getByRole('textbox', { name: /Search the web|搜索互联网/ });
+  await input.focus();
+  const list = page.getByRole('listbox');
+  await expect(page.getByRole('option')).toHaveCount(8);
+  const pageScrollBefore = await page.evaluate(() => window.scrollY);
+
+  for (let index = 0; index < 6; index += 1) await input.press('ArrowDown');
+
+  const selected = page.getByRole('option').filter({ has: page.locator('button.active') });
+  await expect(selected).toHaveCount(1);
+  const visibility = await page.evaluate(() => {
+    const list = document.querySelector<HTMLElement>('.searchSuggestions');
+    const option = document.querySelector<HTMLElement>('.searchSuggestions [aria-selected="true"]');
+    if (!list || !option) throw new Error('Selected search suggestion was not measurable');
+    const listRect = list.getBoundingClientRect();
+    const optionRect = option.getBoundingClientRect();
+    return {
+      listScrollTop: list.scrollTop,
+      fullyVisible: optionRect.top >= listRect.top - .5 && optionRect.bottom <= listRect.bottom + .5,
+      pageScroll: window.scrollY,
+    };
+  });
+  expect(visibility.listScrollTop).toBeGreaterThan(0);
+  expect(visibility.fullyVisible).toBe(true);
+  expect(visibility.pageScroll).toBe(pageScrollBefore);
+
+  for (let index = 0; index < 5; index += 1) await input.press('ArrowUp');
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(8);
+  await input.press('ArrowUp');
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await input.press('ArrowDown');
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(8);
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageScrollBefore);
+  await expect(input).toHaveValue('');
+  await expect(page.getByRole('option', { name: 'keyboard history 1', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await input.press('Enter');
+  await expect(page).toHaveURL(/https:\/\/www\.google\.com\/search\?q=keyboard\+history\+1&hl=/);
+});
+
+test('keeps the submitted suggestion order and highlight frozen when navigation is cancelled', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  const suggestions = ['frozen one', 'frozen two', 'frozen three', 'frozen four', 'frozen five'];
+  await page.route('https://suggestqueries.google.com/**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify(['frozen', suggestions]),
+  }));
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  let navigationDialogSeen = false;
+  page.once('dialog', async (dialog) => {
+    navigationDialogSeen = true;
+    await dialog.dismiss();
+  });
+  await page.evaluate(() => window.addEventListener('beforeunload', (event) => {
+    event.preventDefault();
+    event.returnValue = '';
+  }));
+  const input = page.getByRole('textbox', { name: /Search the web|搜索互联网/ });
+  await input.fill('frozen');
+  await expect(page.getByRole('option', { name: 'frozen five' })).toBeVisible();
+  for (let index = 0; index < 5; index += 1) await input.press('ArrowDown');
+  const before = await page.getByRole('option').allTextContents();
+  await expect(page.getByRole('option', { name: 'frozen five' })).toHaveAttribute('aria-selected', 'true');
+
+  await input.press('Enter');
+  await expect.poll(() => navigationDialogSeen).toBe(true);
+  await expect(page).toHaveURL(`chrome-extension://${extensionId}/newtab.html`);
+  expect(await page.getByRole('option').allTextContents()).toEqual(before);
+  await expect(page.getByRole('option', { name: 'frozen five' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('option', { name: 'frozen four' })).toHaveAttribute('aria-selected', 'false');
 });
 
 test('keeps weather hidden until enabled, then requests local location and loads Open-Meteo weather', async () => {
@@ -348,198 +1172,6 @@ test('uses Bing suggestions without requesting Google and preserves local histor
   expect(googleSuggestionRequests).toBe(0);
 });
 
-test('places shortcuts at the add tile and supports a single-level desktop folder', async () => {
-  if (!context) throw new Error('Browser context was not created');
-  let serviceWorker = context.serviceWorkers()[0];
-  serviceWorker ??= await context.waitForEvent('serviceworker');
-  const extensionId = new URL(serviceWorker.url()).host;
-  const page = await context.newPage();
-  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
-  const addTile = page.locator('[data-desktop-key="add-shortcut"]');
-  const originalSlot = await addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }));
-  await addTile.scrollIntoViewIfNeeded();
-  const addBox = await addTile.boundingBox();
-  if (!addBox) throw new Error('Add shortcut tile was not measurable');
-  await page.mouse.move(addBox.x + addBox.width / 2, addBox.y + addBox.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(650);
-  await page.mouse.move(addBox.x + addBox.width / 2, addBox.y + addBox.height / 2 + 120, { steps: 6 });
-  await page.mouse.up();
-  await expect.poll(() => addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).not.toEqual(originalSlot);
-  const firstMovedSlot = await addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }));
-  // Release immediately after the final movement. The release event may be
-  // delivered before React has processed the last drag-move candidate; an
-  // empty target must still be committed instead of reverting to firstMovedSlot.
-  const movedBox = await addTile.boundingBox();
-  if (!movedBox) throw new Error('Moved add shortcut tile was not measurable');
-  await page.mouse.move(movedBox.x + movedBox.width / 2, movedBox.y + movedBox.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(650);
-  await page.mouse.move(movedBox.x + movedBox.width / 2, movedBox.y + movedBox.height / 2 + 61, { steps: 1 });
-  await page.mouse.up();
-  await expect.poll(() => addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).not.toEqual(firstMovedSlot);
-  const initialSlot = await addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }));
-  await expect.poll(() => page.evaluate(async () => {
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('isu-newtab');
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    return await new Promise<string>((resolve, reject) => {
-      const request = database.transaction('config').objectStore('config').get('current');
-      request.onsuccess = () => {
-        const item = request.result.appearance.widgetLayout.value.find((candidate: { id: string }) => candidate.id === 'addShortcut');
-        resolve(`${item.position.column + 1} / span ${item.position.width}|${item.position.row + 1} / span ${item.position.height}`);
-      };
-      request.onerror = () => reject(request.error);
-    });
-  })).toBe(`${initialSlot.column}|${initialSlot.row}`);
-  await page.reload();
-  await expect.poll(() => addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).toEqual(initialSlot);
-  await addTile.getByRole('button', { name: /Add shortcut|添加快捷方式/ }).click();
-  const editor = page.getByRole('dialog');
-  await editor.getByLabel(/Name|名称/).fill('Docs');
-  await editor.getByLabel(/URL|网址/).fill('https://example.com/docs');
-  await editor.getByRole('button', { name: /Save|保存/ }).click();
-  const shortcut = page.locator('.desktopItem--shortcut').filter({ hasText: 'Docs' });
-  await expect(shortcut).toBeVisible();
-  await expect(shortcut.getByRole('link')).toHaveAttribute('href', 'https://example.com/docs');
-  await expect.poll(() => shortcut.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).toEqual(initialSlot);
-  await expect.poll(() => addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).not.toEqual(initialSlot);
-  await shortcut.scrollIntoViewIfNeeded();
-  const shortcutBox = await shortcut.boundingBox();
-  if (!shortcutBox) throw new Error('Shortcut was not measurable');
-  const extensionUrl = page.url();
-  await page.mouse.move(shortcutBox.x + shortcutBox.width / 2, shortcutBox.y + shortcutBox.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(650);
-  await page.mouse.move(shortcutBox.x + shortcutBox.width / 2 + 110, shortcutBox.y + shortcutBox.height / 2, { steps: 6 });
-  await page.mouse.up();
-  await page.waitForTimeout(100);
-  expect(page.url()).toBe(extensionUrl);
-  await expect(shortcut).toBeVisible();
-
-  await page.evaluate(async () => {
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('isu-newtab');
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    await new Promise<void>((resolve, reject) => {
-      const transaction = database.transaction('config', 'readwrite');
-      const store = transaction.objectStore('config');
-      const request = store.get('current');
-      request.onsuccess = () => {
-        const config = request.result;
-        const revision = { counter: 500, deviceId: 'e2e' };
-        const docs = config.shortcuts.find((item: { name: string }) => item.name === 'Docs');
-        const occupied = [
-          ...config.appearance.widgetLayout.value.map((item: { position: object }) => item.position),
-          ...config.shortcuts.filter((item: { position?: object }) => item.position).map((item: { position: object }) => item.position),
-          ...config.groups.filter((item: { position?: object }) => item.position).map((item: { position: object }) => item.position),
-        ] as Array<{ column: number; row: number; width: number; height: number }>;
-        const candidates = Array.from({ length: 12 }, (_, rowOffset) => rowOffset).flatMap((rowOffset) =>
-          Array.from({ length: 45 }, (_, column) => ({ column, row: Math.max(0, docs.position.row + rowOffset - 2), width: 4, height: 3, gridVersion: 3 })),
-        );
-        const position = candidates.find((candidate) => !occupied.some((item) =>
-          candidate.column < item.column + item.width && candidate.column + candidate.width > item.column
-          && candidate.row < item.row + item.height && candidate.row + candidate.height > item.row,
-        ));
-        if (!position) throw new Error('Could not find a nearby folder position');
-        config.groups.push({ id: 'work', name: 'Work', collapsed: false, sortKey: 'z0', revision, position });
-        store.put(config, 'current');
-      };
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
-    });
-  });
-  await page.reload();
-  const folder = page.locator('.desktopItem--folder').filter({ hasText: 'Work' });
-  await expect(folder).toBeVisible();
-  await folder.scrollIntoViewIfNeeded();
-  const desktopShortcut = page.locator('.desktopItem--shortcut').filter({ hasText: 'Docs' });
-  const folderSlot = await folder.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }));
-  const desktopShortcutBox = await desktopShortcut.boundingBox();
-  const folderBox = await folder.boundingBox();
-  const shortcutIconBox = await desktopShortcut.locator('.desktopIcon').boundingBox();
-  const folderPreviewBox = await folder.locator('.folderPreview').boundingBox();
-  if (!desktopShortcutBox || !folderBox || !shortcutIconBox || !folderPreviewBox) throw new Error('Desktop folder drop was not measurable');
-  const pointerStart = { x: desktopShortcutBox.x + desktopShortcutBox.width / 2, y: desktopShortcutBox.y + desktopShortcutBox.height / 2 };
-  const shortcutIconCenter = { x: shortcutIconBox.x + shortcutIconBox.width / 2, y: shortcutIconBox.y + shortcutIconBox.height / 2 };
-  await page.mouse.move(pointerStart.x, pointerStart.y);
-  await page.mouse.down();
-  await page.waitForTimeout(650);
-  await page.mouse.move(
-    pointerStart.x + folderPreviewBox.x + 1 - shortcutIconCenter.x,
-    pointerStart.y + folderPreviewBox.y + folderPreviewBox.height / 2 - shortcutIconCenter.y,
-    { steps: 8 },
-  );
-  await page.waitForTimeout(450);
-  await expect(folder).not.toHaveClass(/isFolderTarget/);
-  await expect(page.locator('.dashboardBoard')).toHaveClass(/reflowPreview/);
-  await expect.poll(() => folder.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).not.toEqual(folderSlot);
-  await page.waitForTimeout(520);
-  const shiftedFolderBox = await folder.boundingBox();
-  if (!shiftedFolderBox) throw new Error('Displaced folder was not measurable');
-  await page.mouse.move(
-    shiftedFolderBox.x + shiftedFolderBox.width / 2,
-    shiftedFolderBox.y + shiftedFolderBox.height / 2,
-    { steps: 8 },
-  );
-  await expect(folder).toHaveClass(/isFolderTarget/);
-  await expect.poll(() => folder.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).toEqual(folderSlot);
-  await page.mouse.up();
-  await expect(desktopShortcut).toHaveCount(0);
-  await expect.poll(() => page.evaluate(async () => {
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('isu-newtab');
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    return await new Promise<{ groupId?: string; hasPosition: boolean }>((resolve, reject) => {
-      const request = database.transaction('config').objectStore('config').get('current');
-      request.onsuccess = () => {
-        const item = request.result.shortcuts.find((candidate: { name: string }) => candidate.name === 'Docs');
-        resolve({ groupId: item.groupId, hasPosition: Object.hasOwn(item, 'position') });
-      };
-      request.onerror = () => reject(request.error);
-    });
-  })).toEqual({ groupId: 'work', hasPosition: false });
-  await expect(folder.locator('.folderPreview')).toHaveCSS('border-radius', '25px');
-  await expect(folder.locator('.folderPreview')).toHaveCSS('grid-template-rows', '18px 18px 18px');
-  await expect(folder.locator('.folderPreview > span')).toHaveCSS('height', '18px');
-  await folder.locator('.desktopFolder').click();
-  const folderDialog = page.getByRole('dialog', { name: 'Work' });
-  await expect(folderDialog.locator('.folderSurface')).toBeVisible();
-  await expect(folderDialog.locator('.folderSurface')).not.toHaveCSS('background-color', 'rgb(255, 255, 255)');
-  await expect(folderDialog.getByRole('button', { name: /Close|关闭/, exact: true })).toHaveCount(0);
-  const folderMember = folderDialog.getByRole('link', { name: 'Docs' });
-  await expect(folderMember).toBeVisible();
-  await expect(folderDialog.locator('.folderItemActions')).toHaveCount(0);
-  const memberBox = await folderMember.boundingBox();
-  const surfaceBox = await folderDialog.locator('.folderSurface').boundingBox();
-  if (!memberBox || !surfaceBox) throw new Error('Folder member was not measurable');
-  await page.mouse.move(memberBox.x + memberBox.width / 2, memberBox.y + memberBox.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(650);
-  await page.mouse.move(surfaceBox.x + surfaceBox.width - 24, surfaceBox.y + surfaceBox.height - 24, { steps: 6 });
-  await page.mouse.up();
-  await expect(folderDialog.getByRole('link', { name: 'Docs' })).toBeVisible();
-  await expect(page.locator('.desktopItem--shortcut').filter({ hasText: 'Docs' })).toHaveCount(0);
-
-  const boardBox = await page.locator('.dashboardBoard').boundingBox();
-  const refreshedMemberBox = await folderDialog.getByRole('link', { name: 'Docs' }).boundingBox();
-  if (!boardBox || !refreshedMemberBox) throw new Error('Folder drag target was not measurable');
-  await page.mouse.move(refreshedMemberBox.x + refreshedMemberBox.width / 2, refreshedMemberBox.y + refreshedMemberBox.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(650);
-  await page.mouse.move(boardBox.x + 24, boardBox.y + 24, { steps: 8 });
-  await page.waitForTimeout(450);
-  await page.mouse.up();
-  await expect(page.locator('.desktopItem--shortcut').filter({ hasText: 'Docs' })).toBeVisible();
-  await expect(folder.locator('.folderPreview.empty')).toBeEmpty();
-});
-
 test('converts an uploaded wallpaper to local WebP without putting it in Chrome Sync', async () => {
   if (!context) throw new Error('Browser context was not created');
   let serviceWorker = context.serviceWorkers()[0];
@@ -583,14 +1215,175 @@ test('converts an uploaded wallpaper to local WebP without putting it in Chrome 
     return { wallpaperType: config.appearance?.wallpaper?.value?.type, blobType: asset?.blob?.type, errors: [...document.querySelectorAll('.errorText')].map((element) => element.textContent) };
   })).toEqual({ wallpaperType: 'upload', blobType: 'image/webp', errors: [] });
 
-  await expect.poll(() => page.evaluate(() => {
-    const preview = JSON.parse(localStorage.getItem('isu:wallpaper-bootstrap-preview') ?? 'null') as { identity?: string; background?: string } | null;
-    return { identity: preview?.identity, isTinyWebp: preview?.background?.startsWith('data:image/webp;base64,') ?? false, bytes: preview?.background?.length ?? 0 };
-  })).toEqual(expect.objectContaining({ identity: 'upload:wallpaper/upload', isTinyWebp: true }));
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('isu:wallpaper-bootstrap-preview')!).background.length)).toBeLessThan(64 * 1024);
+  await expect(page.locator('.wallpaperBackdrop')).toHaveAttribute('data-wallpaper-current', 'upload:wallpaper/upload');
 
   const remoteText = await page.evaluate(async () => JSON.stringify(await chrome.storage.sync.get(null)));
   expect(remoteText).not.toContain('wallpaper/upload');
+});
+
+test('fills Wallhaven and Unsplash preview buttons with their images', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const thumbnail = 'https://th.wallhaven.cc/lg/pr/preview-e2e.jpg';
+  await context.route('https://wallhaven.cc/api/v1/search**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ data: [{ id: 'preview-e2e', url: 'https://wallhaven.cc/w/preview-e2e', thumbs: { large: thumbnail }, path: 'https://w.wallhaven.cc/full/pr/preview-e2e.jpg' }], meta: { current_page: 1, last_page: 1 } }),
+  }));
+  await context.route('https://api.unsplash.com/**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify([{ id: 'unsplash-preview-e2e', urls: { raw: 'https://images.unsplash.com/preview-raw', small: 'https://images.unsplash.com/preview-small' }, links: { html: 'https://unsplash.com/photos/preview-e2e', download_location: 'https://api.unsplash.com/photos/preview-e2e/download' }, user: { name: 'E2E', links: { html: 'https://unsplash.com/@e2e' } } }]),
+  }));
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+
+  await page.getByPlaceholder(/Online search|在线搜索/).fill('aurora');
+  const wallhavenButton = page.locator('.wallhavenGrid:not(.unsplashGrid) button').first();
+  await expect(wallhavenButton).toBeVisible();
+  await expectFilledWallpaperPreview(wallhavenButton);
+
+  const onlineSource = page.locator('select').filter({ has: page.locator('option[value="unsplash"]') });
+  await onlineSource.selectOption('unsplash');
+  await page.getByPlaceholder(/Unsplash Access Key|Unsplash Access Key/).fill('e2e-key');
+  await page.getByRole('button', { name: /Save key|保存 Key/ }).click();
+  const unsplashButton = page.locator('.unsplashGrid button').first();
+  await expect(unsplashButton).toBeVisible();
+  await expectFilledWallpaperPreview(unsplashButton);
+});
+
+test('caches fixed and daily Bing wallpapers locally', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const imageUrl = 'https://www.bing.com/th?id=OHR.BingE2E_ZH-CN123_1920x1080.jpg&pid=hp';
+  const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JqJkAAAAASUVORK5CYII=', 'base64');
+  await context.route('https://www.bing.com/HPImageArchive.aspx**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ images: [{ startdate: '20260826', url: '/th?id=OHR.BingE2E_ZH-CN123_1920x1080.jpg&pid=hp', copyrightlink: '/search?q=bing-e2e' }] }),
+  }));
+  await context.route('https://www.bing.com/th**', (route) => route.fulfill({ contentType: 'image/png', body: image }));
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+
+  const onlineSource = page.getByLabel(/Online wallpaper source|在线壁纸来源/);
+  await onlineSource.selectOption('bing');
+  await page.getByLabel(/Bing wallpaper quality|Bing 壁纸清晰度/).selectOption('4k');
+  await page.getByRole('button', { name: /Close|关闭/ }).click();
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  await page.getByLabel(/Online wallpaper source|在线壁纸来源/).selectOption('bing');
+  await expect(page.getByLabel(/Bing wallpaper quality|Bing 壁纸清晰度/)).toHaveValue('4k');
+  const bingPreview = page.locator('.bingGrid button').first();
+  await expect(bingPreview).toBeVisible();
+  await bingPreview.evaluate((element) => (element as HTMLButtonElement).click());
+  await expect.poll(() => page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'assets']);
+    const configRequest = transaction.objectStore('config').get('current');
+    const assetRequest = transaction.objectStore('assets').get('wallpaper/bing-current');
+    const [config, asset] = await Promise.all([
+      new Promise<any>((resolve, reject) => { configRequest.onsuccess = () => resolve(configRequest.result); configRequest.onerror = () => reject(configRequest.error); }),
+      new Promise<any>((resolve, reject) => { assetRequest.onsuccess = () => resolve(assetRequest.result); assetRequest.onerror = () => reject(assetRequest.error); }),
+    ]);
+    return { wallpaper: config.appearance.wallpaper.value, hasImage: asset?.blob instanceof Blob };
+  })).toEqual({ wallpaper: { type: 'bing', imageUrl: `${imageUrl}&w=3840&h=2160&rs=1&c=4`, sourceUrl: 'https://www.bing.com/search?q=bing-e2e', date: '20260826', quality: '4k' }, hasImage: true });
+
+  await page.locator('.wallpaperBingDailyChoice').evaluate((element) => (element as HTMLButtonElement).click());
+  await expect.poll(() => page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'settings', 'assets']);
+    const configRequest = transaction.objectStore('config').get('current');
+    const stateRequest = transaction.objectStore('settings').get('bingDailyWallpaper');
+    const assetRequest = transaction.objectStore('assets').get('wallpaper/bing-daily-current');
+    const [config, state, asset] = await Promise.all([
+      new Promise<any>((resolve, reject) => { configRequest.onsuccess = () => resolve(configRequest.result); configRequest.onerror = () => reject(configRequest.error); }),
+      new Promise<any>((resolve, reject) => { stateRequest.onsuccess = () => resolve(stateRequest.result); stateRequest.onerror = () => reject(stateRequest.error); }),
+      new Promise<any>((resolve, reject) => { assetRequest.onsuccess = () => resolve(assetRequest.result); assetRequest.onerror = () => reject(assetRequest.error); }),
+    ]);
+    return { wallpaper: config.appearance.wallpaper.value, imageUrl: state?.imageUrl, market: state?.market, hasImage: asset?.blob instanceof Blob };
+  })).toEqual({ wallpaper: { type: 'bing-daily', quality: '4k' }, imageUrl: `${imageUrl}&w=3840&h=2160&rs=1&c=4`, market: 'en-US', hasImage: true });
+  await expect(page.locator('.wallpaperBackdrop')).toHaveAttribute('data-wallpaper-current', `bing-daily:${imageUrl}&w=3840&h=2160&rs=1&c=4`);
+
+  await page.getByLabel(/Bing wallpaper quality|Bing 壁纸清晰度/).selectOption('1440p');
+  await expect.poll(() => page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    return new Promise<any>((resolve, reject) => {
+      const request = database.transaction('settings').objectStore('settings').get('bingDailyWallpaper');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  })).toEqual(expect.objectContaining({ quality: '1440p', imageUrl: `${imageUrl}&w=2560&h=1440&rs=1&c=4` }));
+  await expect(page.locator('.wallpaperBackdrop')).toHaveAttribute('data-wallpaper-incoming', `bing-daily:${imageUrl}&w=2560&h=1440&rs=1&c=4`);
+  await expect.poll(() => page.locator('.wallpaperBackdrop').getAttribute('data-wallpaper-current'), { timeout: 3_000 }).toBe(`bing-daily:${imageUrl}&w=2560&h=1440&rs=1&c=4`);
+});
+
+test('uses one outlined style for local, random, and Bing wallpaper actions', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  await context.route('https://wallhaven.cc/api/v1/search**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ data: [{ id: 'random-style-e2e', url: 'https://wallhaven.cc/w/random-style-e2e', thumbs: { large: 'https://th.wallhaven.cc/lg/ra/random-style-e2e.jpg' }, path: 'https://w.wallhaven.cc/full/ra/random-style-e2e.jpg' }], meta: { current_page: 1, last_page: 1 } }),
+  }));
+  await context.route('https://w.wallhaven.cc/full/ra/random-style-e2e.jpg', (route) => route.fulfill({
+    contentType: 'image/png',
+    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JqJkAAAAASUVORK5CYII=', 'base64'),
+  }));
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+
+  const actions = page.locator('.wallpaperUploadChoice, .wallpaperRandomChoice, .wallpaperBingDailyChoice');
+  await expect(actions).toHaveCount(3);
+  const initialStyles = await actions.evaluateAll((buttons) => buttons.map((button) => {
+    const style = getComputedStyle(button);
+    return { backgroundColor: style.backgroundColor, backgroundImage: style.backgroundImage, borderColor: style.borderTopColor, color: style.color };
+  }));
+  expect(new Set(initialStyles.map((style) => JSON.stringify(style))).size).toBe(1);
+
+  const randomButton = page.locator('.wallpaperRandomChoice');
+  await randomButton.click();
+  await expect(randomButton).toHaveAttribute('aria-pressed', 'true');
+  await page.mouse.move(0, 0);
+  await expect(randomButton).toHaveCSS('border-top-color', 'rgb(26, 115, 232)');
+  await expect(randomButton).toHaveCSS('background-image', 'none');
+});
+
+test('uses one outlined style for backup and restore actions', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+
+  const actions = page.locator('.backupActionGrid button');
+  await expect(actions).toHaveCount(3);
+  const readStyles = () => actions.evaluateAll((buttons) => buttons.map((button) => {
+    const style = getComputedStyle(button);
+    return { backgroundColor: style.backgroundColor, borderColor: style.borderTopColor, color: style.color };
+  }));
+  expect(new Set((await readStyles()).map((style) => JSON.stringify(style))).size).toBe(1);
+
+  await page.getByLabel(/Theme|主题/, { exact: true }).selectOption('dark');
+  expect(new Set((await readStyles()).map((style) => JSON.stringify(style))).size).toBe(1);
 });
 
 test('keeps online random wallpaper images local while syncing its interval setting', async () => {
@@ -677,8 +1470,7 @@ test('keeps an expired cached random wallpaper visible until its replacement is 
 
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/newtab.html`);
-  await page.evaluate(async ({ oldImageUrl, preview, pngBytes }) => {
-    localStorage.setItem('isu:wallpaper-bootstrap-preview', JSON.stringify({ identity: `wallhaven-random:${oldImageUrl}`, background: preview }));
+  await page.evaluate(async ({ oldImageUrl, pngBytes }) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('isu-newtab');
       request.onsuccess = () => resolve(request.result);
@@ -712,7 +1504,7 @@ test('keeps an expired cached random wallpaper visible until its replacement is 
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error);
     });
-  }, { oldImageUrl, preview: `data:image/png;base64,${png.toString('base64')}`, pngBytes: [...png] });
+  }, { oldImageUrl, pngBytes: [...png] });
   await page.evaluate(() => chrome.runtime.sendMessage({ type: 'wallpaper:random:reconcile' }));
   await page.reload();
 
@@ -743,8 +1535,8 @@ test('keeps the final wallpaper selection when builtin choices change in sequenc
   await expect(auroraPreview).toHaveCSS('--builtin-wallpaper', BUILTIN_WALLPAPERS.aurora);
 
   for (const [label, identity] of [
-    [/Aurora|极光/, 'builtin:aurora'],
     [/Dusk|暮色/, 'builtin:dusk'],
+    [/Aurora|极光/, 'builtin:aurora'],
     [/Ocean|海洋/, 'builtin:ocean'],
   ] as const) {
     await page.getByRole('button', { name: label }).click();
@@ -811,6 +1603,7 @@ test('dissolves the incoming wallpaper across the full viewport', async () => {
   const backdrop = page.locator('.wallpaperBackdrop');
   await page.getByRole('button', { name: /Dusk|暮色/ }).click();
   await expect.poll(() => backdrop.getAttribute('data-wallpaper-current'), { timeout: 3_000 }).toBe('builtin:dusk');
+  await expect.poll(() => backdrop.getAttribute('data-wallpaper-incoming'), { timeout: 3_000 }).toBeNull();
   await page.getByRole('button', { name: /Aurora|极光/ }).click();
 
   await expect(backdrop).toHaveAttribute('data-wallpaper-incoming', 'builtin:aurora');
@@ -876,20 +1669,15 @@ test('keeps the visible composition and restarts the full dissolve for rapid wal
   await expect(backdrop.locator('.wallpaperLayer')).toHaveCount(1);
 });
 
-test('paints the saved wallpaper preview before application hydration', async () => {
+test('starts from a black document without a wallpaper bootstrap script', async () => {
   if (!context) throw new Error('Browser context was not created');
   let serviceWorker = context.serviceWorkers()[0];
   serviceWorker ??= await context.waitForEvent('serviceworker');
   const extensionId = new URL(serviceWorker.url()).host;
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/newtab.html`);
-  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-  await page.addInitScript(() => {
-    localStorage.setItem('isu:wallpaper-bootstrap-preview', JSON.stringify({ identity: 'test:preview', background: '#123456' }));
-  });
-  await page.reload();
-  await expect(page.locator('html')).toHaveAttribute('data-wallpaper-bootstrap', '#123456');
-  await expect(page.locator('script[src="/wallpaper-bootstrap.js"]')).toHaveCount(1);
+  await expect(page.locator('script[src="/wallpaper-bootstrap.js"]')).toHaveCount(0);
+  await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(0, 0, 0)');
 });
 
 test('switches between Chrome Sync and local mode through the background coordinator', async () => {
@@ -905,6 +1693,9 @@ test('switches between Chrome Sync and local mode through the background coordin
   await expect.poll(() => readSetting(page, 'syncMode')).toBe('local');
   await mode.selectOption('chrome');
   await expect.poll(() => readSetting(page, 'syncMode')).toBe('chrome');
+  await mode.selectOption('google-drive');
+  await expect(page.getByRole('button', { name: /Connect Google Drive|连接 Google Drive/ })).toBeVisible();
+  await expect.poll(() => readSetting(page, 'syncMode')).toBe('chrome');
 });
 
 test('keeps logical widget footprints stable across content and viewport changes', async () => {
@@ -917,6 +1708,7 @@ test('keeps logical widget footprints stable across content and viewport changes
   await page.route('https://zenquotes.io/**', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ q: longQuote, a: 'E2E' }]) }));
   await page.route('https://v1.hitokoto.cn/**', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ uuid: 'long-e2e', hitokoto: longQuote, from: 'E2E', from_who: null }) }));
   await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await setWidgetsVisibility(page, ['greeting', 'dailyQuote', 'quickNote']);
   const quote = page.locator('.dailyQuote blockquote');
   await expect(quote).toContainText('Curiosity');
   await expect(quote).toContainText('what already appears complete.');
@@ -994,6 +1786,8 @@ test('keeps the add tile fixed when a quote is moved around the clock', async ()
   const extensionId = new URL(serviceWorker.url()).host;
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await setWidgetsVisibility(page, ['clock', 'dailyQuote', 'addShortcut']);
+  await setWidgetVisibility(page, 'search', false);
   await page.evaluate(async () => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open('isu-newtab');
@@ -1057,6 +1851,8 @@ test('waits for actual collision boxes before displacing a neighboring widget', 
   const page = await context.newPage();
   await page.setViewportSize({ width: 667, height: 900 });
   await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await setWidgetsVisibility(page, ['greeting', 'focusTimer']);
+  await offsetWidgetRow(page, 'focusTimer', 1);
   const greeting = page.locator('[data-widget-id="greeting"]');
   const box = await greeting.boundingBox();
   if (!box) throw new Error('Greeting was not measurable');
@@ -1074,6 +1870,67 @@ test('waits for actual collision boxes before displacing a neighboring widget', 
   await page.mouse.up();
 });
 
+test('keeps the desktop drag overlay aligned after leaving the browser window', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.setViewportSize({ width: 1000, height: 500 });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await setWidgetVisibility(page, 'addShortcut', true);
+  const addTile = page.locator('[data-desktop-key="add-shortcut"]');
+  await expect(addTile).toBeVisible();
+  await addTile.scrollIntoViewIfNeeded();
+  const originalSlot = await addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }));
+  const addBox = await addTile.boundingBox();
+  if (!addBox) throw new Error('Add shortcut tile was not measurable');
+  const start = { x: addBox.x + addBox.width / 2, y: addBox.y + addBox.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.waitForTimeout(650);
+  const overlay = page.locator('[data-desktop-drag-overlay]');
+  const overlayOutline = overlay.locator('.desktopPieceDragOverlay__gridOutline');
+  await expect(overlay).toBeVisible();
+  await expect(overlayOutline).toBeVisible();
+  await expect(addTile.locator('.pieceContent')).toHaveCSS('visibility', 'hidden');
+  await page.mouse.move(start.x, 1, { steps: 6 });
+  await page.evaluate(() => document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: null })));
+  const scrollAtExit = await page.evaluate(() => window.scrollY);
+  await page.waitForTimeout(250);
+  expect(Math.abs((await page.evaluate(() => window.scrollY)) - scrollAtExit)).toBeLessThanOrEqual(1);
+
+  const pointer = { x: start.x, y: 250 };
+  await page.mouse.move(pointer.x, pointer.y, { steps: 6 });
+  const overlayBox = await overlay.boundingBox();
+  const overlayOutlineBox = await overlayOutline.boundingBox();
+  if (!overlayBox || !overlayOutlineBox) throw new Error('Desktop drag overlay was not measurable');
+  expect(Math.abs(overlayOutlineBox.width - overlayBox.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(overlayOutlineBox.height - overlayBox.height)).toBeLessThanOrEqual(1);
+  expect(Math.abs(overlayBox.x + overlayBox.width / 2 - pointer.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(overlayBox.y + overlayBox.height / 2 - pointer.y)).toBeLessThanOrEqual(2);
+
+  await page.mouse.move(pointer.x, 499, { steps: 6 });
+  await page.evaluate(() => document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: null })));
+  const downScrollAtExit = await page.evaluate(() => window.scrollY);
+  await page.waitForTimeout(250);
+  expect(Math.abs((await page.evaluate(() => window.scrollY)) - downScrollAtExit)).toBeLessThanOrEqual(1);
+  await page.mouse.move(pointer.x, pointer.y, { steps: 6 });
+  const downOverlayBox = await overlay.boundingBox();
+  const downOutlineBox = await overlayOutline.boundingBox();
+  if (!downOverlayBox || !downOutlineBox) throw new Error('Desktop drag overlay was not measurable after downward return');
+  expect(Math.abs(downOutlineBox.width - downOverlayBox.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(downOutlineBox.height - downOverlayBox.height)).toBeLessThanOrEqual(1);
+  expect(Math.abs(downOverlayBox.x + downOverlayBox.width / 2 - pointer.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(downOverlayBox.y + downOverlayBox.height / 2 - pointer.y)).toBeLessThanOrEqual(2);
+
+  await page.mouse.up();
+  await expect.poll(() => addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).not.toEqual(originalSlot);
+  const droppedSlot = await addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }));
+  await page.reload();
+  await expect.poll(() => addTile.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).toEqual(droppedSlot);
+});
+
 test('hides, drags, and persists dashboard components on the board', async () => {
   if (!context) throw new Error('Browser context was not created');
   let serviceWorker = context.serviceWorkers()[0];
@@ -1081,6 +1938,7 @@ test('hides, drags, and persists dashboard components on the board', async () =>
   const extensionId = new URL(serviceWorker.url()).host;
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await setWidgetVisibility(page, 'greeting', true);
   await page.getByRole('button', { name: /Settings|设置/ }).click();
   const searchComponent = page.getByRole('checkbox', { name: /Search|搜索/, exact: true });
   await searchComponent.uncheck();
@@ -1115,7 +1973,12 @@ test('hides, drags, and persists dashboard components on the board', async () =>
   await page.getByRole('button', { name: /Settings|设置/ }).click();
   await page.getByRole('button', { name: /Restore default|恢复默认/, exact: true }).click();
   await page.getByRole('button', { name: /Close|关闭/ }).click();
-  await expect.poll(() => greetingWidget.evaluate((element) => {
+  await expect(page.locator('[data-widget-id="greeting"]')).toHaveCount(0);
+  await setWidgetsVisibility(page, ['clock', 'greeting', 'focusTimer', 'quickNote', 'dailyQuote']);
+  await offsetWidgetRow(page, 'focusTimer', 1);
+  await expect(page.locator('[data-widget-id="search"]')).toBeVisible();
+  const restoredGreeting = page.locator('[data-widget-id="greeting"]');
+  await expect.poll(() => restoredGreeting.evaluate((element) => {
     const boardRect = element.parentElement!.getBoundingClientRect();
     const widgetRect = element.getBoundingClientRect();
     const contentRect = element.firstElementChild!.getBoundingClientRect();
@@ -1141,7 +2004,6 @@ test('hides, drags, and persists dashboard components on the board', async () =>
   expect(await greetingContent.evaluate((element) => element.getClientRects().length)).toBe(1);
   await page.getByRole('button', { name: /Settings|设置/ }).click();
   await page.getByRole('checkbox', { name: /Search|搜索/, exact: true }).check();
-  await page.getByRole('button', { name: /Restore default|恢复默认/, exact: true }).click();
   await page.getByRole('button', { name: /Close|关闭/ }).click();
   await expect(page.locator('[data-widget-id="search"]')).toHaveCSS('grid-column-start', '13');
   for (const widgetId of ['clock', 'greeting', 'focusTimer', 'search', 'quickNote', 'dailyQuote']) {
@@ -1188,7 +2050,6 @@ test('hides, drags, and persists dashboard components on the board', async () =>
   await page.mouse.down();
   await page.waitForTimeout(650);
   await page.mouse.move(centeredBox.x + centeredBox.width / 2, centeredBox.y + centeredBox.height / 2 + 80, { steps: 6 });
-  await page.waitForTimeout(450);
   await expect(page.locator('.dashboardBoard')).toHaveClass(/reflowPreview/);
   await expect(centeredGreeting).toHaveCSS('grid-row-start', originalGreetingRow);
   const displacedWidget = page.locator('.dashboardWidget.isDisplaced').first();
@@ -1197,6 +2058,19 @@ test('hides, drags, and persists dashboard components on the board', async () =>
   if (!displacedKey) throw new Error('Displaced widget had no stable desktop key');
   const animatedWidget = page.locator(`[data-desktop-key="${displacedKey}"]`);
   await expect(animatedWidget).toHaveAttribute('data-layout-motion', 'damped-quartic');
+  const layerOrder = await page.evaluate(({ activeSelector, displacedSelector }) => {
+    const active = document.querySelector<HTMLElement>(activeSelector);
+    const displaced = document.querySelector<HTMLElement>(displacedSelector);
+    if (!active || !displaced) throw new Error('Drag layer nodes were not found');
+    return {
+      active: Number.parseInt(getComputedStyle(active).zIndex, 10),
+      displaced: Number.parseInt(getComputedStyle(displaced).zIndex, 10),
+    };
+  }, {
+    activeSelector: '[data-widget-id="greeting"]',
+    displacedSelector: `[data-desktop-key="${displacedKey}"]`,
+  });
+  expect(layerOrder.active).toBeGreaterThan(layerOrder.displaced);
   await page.mouse.move(centeredBox.x + centeredBox.width / 2, centeredBox.y + centeredBox.height / 2, { steps: 6 });
   await expect(centeredGreeting).toHaveCSS('grid-row-start', originalGreetingRow);
   await expect(animatedWidget).not.toHaveClass(/isDisplaced/);
@@ -1223,6 +2097,33 @@ test('hides, drags, and persists dashboard components on the board', async () =>
   await expect.poll(() => page.locator('[data-widget-id]').evaluateAll((elements) => Object.fromEntries(elements.map((element) => [element.getAttribute('data-widget-id'), getComputedStyle(element).gridRowStart])))).toEqual(committedRows);
 });
 
+test('enabling a component through settings uses a vacant slot without moving existing pieces', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+
+  const search = page.locator('[data-widget-id="search"]');
+  const searchSlot = await search.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }));
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  await page.getByRole('checkbox', { name: /Clock and date|时间与日期/, exact: true }).check();
+  await page.getByRole('button', { name: /Close|关闭/ }).click();
+
+  const clock = page.locator('[data-widget-id="clock"]');
+  await expect(clock).toBeVisible();
+  const [searchBox, clockBox] = await Promise.all([search.boundingBox(), clock.boundingBox()]);
+  if (!searchBox || !clockBox) throw new Error('Enabled components were not measurable');
+  expect(searchBox.x + searchBox.width <= clockBox.x || clockBox.x + clockBox.width <= searchBox.x || searchBox.y + searchBox.height <= clockBox.y || clockBox.y + clockBox.height <= searchBox.y).toBe(true);
+  expect(await search.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }))).toEqual(searchSlot);
+
+  const clockSlot = await clock.evaluate((element) => ({ column: (element as HTMLElement).style.gridColumn, row: (element as HTMLElement).style.gridRow }));
+  await page.reload();
+  await expect(page.locator('[data-widget-id="clock"]')).toHaveCSS('grid-column', clockSlot.column);
+  await expect(page.locator('[data-widget-id="clock"]')).toHaveCSS('grid-row', clockSlot.row);
+});
+
 test('customizes the search box and shows local history and online suggestions', async () => {
   if (!context) throw new Error('Browser context was not created');
   let serviceWorker = context.serviceWorkers()[0];
@@ -1234,6 +2135,7 @@ test('customizes the search box and shows local history and online suggestions',
     body: JSON.stringify(['codex live', ['codex live search', 'codex live extension']]),
   }));
   await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await setWidgetVisibility(page, 'clock', true);
 
   await page.getByRole('button', { name: /Settings|设置/ }).click();
   await page.waitForTimeout(300);
@@ -1455,6 +2357,8 @@ test('customizes the search box and shows local history and online suggestions',
   const suggestionBox = await suggestionList.boundingBox();
   const suggestionSurfaceBox = await suggestionSurface.boundingBox();
   if (!searchFormBox || !suggestionBox || !suggestionSurfaceBox) throw new Error('Search suggestion geometry was not measurable');
+  await expect(suggestionSurface).toHaveCSS('position', 'absolute');
+  expect(Math.abs(searchFormBox.y - searchFormBoxBeforeOpen.y)).toBeLessThanOrEqual(1);
   expect(suggestionBox.y).toBeGreaterThanOrEqual(searchFormBox.y + searchFormBox.height - .5);
   expect(Math.abs(suggestionSurfaceBox.x - searchFormBox.x)).toBeLessThan(1);
   expect(Math.abs(suggestionSurfaceBox.y - searchFormBox.y)).toBeLessThan(1);
@@ -1497,6 +2401,107 @@ test('customizes the search box and shows local history and online suggestions',
   await expect(searchForm).toHaveCSS('border-bottom-color', 'rgba(223, 225, 229, 0.88)');
   await expect(searchForm).toHaveCSS('box-shadow', 'rgba(32, 33, 36, 0.24) 0px 4px 7px 0px');
   await context.unroute('https://suggestqueries.google.com/**');
+});
+
+test('switches the new interface languages without reloading the new tab', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  const drawer = page.getByRole('dialog');
+  const languageSelect = drawer.locator('.settings > section').nth(1).locator('select');
+
+  for (const [language, lang, title, settings] of [
+    ['zh_HK', 'zh-HK', '新分頁', '設定'],
+    ['zh_TW', 'zh-TW', '新分頁', '設定'],
+    ['ko', 'ko', '새 탭', '설정'],
+    ['ja', 'ja', '新しいタブ', '設定'],
+  ] as const) {
+    await languageSelect.selectOption(language);
+    await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    await expect(page).toHaveTitle(title);
+    await expect(drawer.locator('.modalHeader h2')).toHaveText(settings);
+  }
+});
+
+test('applies light, dark, and system themes to shared modal variants', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  const settingsDrawer = page.getByRole('dialog', { name: /Settings|设置/ });
+  const settingsBackdrop = settingsDrawer.locator('..');
+  const themeSelect = page.getByLabel(/Theme|主题/, { exact: true });
+  await expect(settingsDrawer).toHaveAttribute('data-theme', 'system');
+  await expect(settingsDrawer).toHaveCSS('background-color', 'rgb(23, 24, 27)');
+  await expect(settingsBackdrop).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(settingsBackdrop).toHaveCSS('backdrop-filter', 'none');
+
+  await themeSelect.selectOption('light');
+  await expect(settingsDrawer).toHaveAttribute('data-theme', 'light');
+  await expect(settingsDrawer).toHaveCSS('background-color', 'rgb(248, 250, 253)');
+  await expect(themeSelect.locator('option').first()).toHaveCSS('color', 'rgb(32, 33, 36)');
+
+  await themeSelect.selectOption('system');
+  await expect(settingsDrawer).toHaveAttribute('data-theme', 'system');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(settingsDrawer).toHaveCSS('background-color', 'rgb(248, 250, 253)');
+  await expect(themeSelect.locator('option').first()).toHaveCSS('color', 'rgb(32, 33, 36)');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(settingsDrawer).toHaveCSS('background-color', 'rgb(23, 24, 27)');
+  await expect(settingsBackdrop).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(settingsBackdrop).toHaveCSS('backdrop-filter', 'none');
+
+  await themeSelect.selectOption('dark');
+  await expect(settingsDrawer).toHaveAttribute('data-theme', 'dark');
+  await expect(settingsDrawer.locator('.settings > section').first()).toHaveCSS('background-color', 'rgb(32, 33, 36)');
+  await expect(settingsBackdrop).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await expect(settingsBackdrop).toHaveCSS('backdrop-filter', 'none');
+  const settingOptionColors = await settingsDrawer.locator('select option').evaluateAll((options) => [...new Set(options.map((option) => getComputedStyle(option).color))]);
+  expect(settingOptionColors).toEqual(['rgb(241, 243, 244)']);
+  await page.getByRole('checkbox', { name: /Add shortcut|添加快捷方式/, exact: true }).check();
+  await page.getByRole('button', { name: /Close|关闭/ }).click();
+
+  await page.getByRole('button', { name: /Add shortcut|添加快捷方式/, exact: true }).click();
+  const editor = page.getByRole('dialog', { name: /Add shortcut|添加快捷方式/ });
+  await expect(editor).toHaveAttribute('data-theme', 'dark');
+  await expect(editor).toHaveCSS('background-color', 'rgb(32, 33, 36)');
+  await expect(editor.locator('..')).toHaveCSS('background-color', 'rgba(32, 33, 36, 0.28)');
+  await expect(editor.locator('..')).toHaveCSS('backdrop-filter', 'none');
+  await expect(editor.locator('select option').first()).toHaveCSS('color', 'rgb(241, 243, 244)');
+
+  await page.evaluate(() => {
+    for (const theme of ['light', 'system', 'dark']) {
+      for (const variant of ['editor', 'center']) {
+        const backdrop = document.createElement('div');
+        backdrop.id = `modal-theme-${variant}-${theme}`;
+        backdrop.className = `modalBackdrop modalBackdrop--${variant}`;
+        backdrop.dataset.theme = theme;
+        document.body.append(backdrop);
+      }
+    }
+  });
+  for (const theme of ['light', 'dark', 'system']) {
+    for (const variant of ['editor', 'center']) {
+      const backdrop = page.locator(`#modal-theme-${variant}-${theme}`);
+      await expect(backdrop).toHaveCSS('background-color', 'rgba(32, 33, 36, 0.28)');
+      await expect(backdrop).toHaveCSS('backdrop-filter', 'none');
+    }
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  for (const variant of ['editor', 'center']) {
+    const backdrop = page.locator(`#modal-theme-${variant}-system`);
+    await expect(backdrop).toHaveCSS('background-color', 'rgba(32, 33, 36, 0.28)');
+    await expect(backdrop).toHaveCSS('backdrop-filter', 'none');
+  }
 });
 
 async function readSetting(page: import('@playwright/test').Page, key: string): Promise<unknown> {
