@@ -21,11 +21,23 @@ describe('dashboard widgets', () => {
     setAppLanguage('zh_CN');
     rerender(<ClockWidget now={now} />);
     expect(screen.getByText('8月16日星期日')).toBeVisible();
+
+    setAppLanguage('ja');
+    rerender(<ClockWidget now={now} />);
+    expect(screen.getByText('8月16日日曜日')).toBeVisible();
+
+    setAppLanguage('ko');
+    rerender(<ClockWidget now={now} />);
+    expect(screen.getByText('8월 16일 일요일')).toBeVisible();
   });
 
   it('starts and resets the focus timer', () => {
     vi.useFakeTimers();
-    render(<FocusTimer />);
+    const { container } = render(<FocusTimer />);
+    expect(container.querySelector('.timerModes')).toHaveClass('liquidGlassSurface');
+    expect(container.querySelector('.roundControl')).toHaveClass('liquidGlassSurface');
+    expect(container.querySelector('.focusState')).toHaveClass('liquidGlassSurface');
+    expect(container.querySelector('.focusState > span')).toHaveTextContent('focus');
     fireEvent.click(screen.getByRole('button', { name: 'start' }));
     act(() => vi.advanceTimersByTime(1_000));
     expect(screen.getByText('24:59')).toBeVisible();
@@ -34,7 +46,8 @@ describe('dashboard widgets', () => {
   });
 
   it('keeps the quick note in local-only browser storage', () => {
-    render(<QuickNote />);
+    const { container } = render(<QuickNote />);
+    expect(container.querySelector('.quickNote')).toHaveClass('liquidGlassSurface');
     expect(screen.queryByText('savedLocally')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('quickNote'), { target: { value: 'Finish the dashboard' } });
     expect(localStorage.getItem('isu:quick-note')).toBe('Finish the dashboard');
