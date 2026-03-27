@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createInitialConfig } from '../../core/domain/defaults';
 import { buildDesktopSnapshot, desktopItems } from '../../core/domain/desktop';
 import { collisionGeometryForRects, collisionRectFor, collisionRectsOverlap, roundCollisionSize, type DesktopCollisionGeometry } from '../../core/layout/desktop-collision';
-import { placeDesktopNode } from '../../core/layout/desktop-layout-engine';
+import { placeDesktopNode } from '../../core/layout/piece-desktop-adapter';
 
 const geometry: DesktopCollisionGeometry = {
   boardLeft: 0,
