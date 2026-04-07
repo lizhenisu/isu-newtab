@@ -1,12 +1,13 @@
 {
   "name": "isu-newtab",
-  "version": "0.5.0",
+  "version": "0.11.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wxt",
-    "build": "wxt build",
-    "zip": "wxt zip",
+    "dev": "NODE_ENV=development wxt",
+    "build": "NODE_ENV=development wxt build",
+    "build:store": "NODE_ENV=production wxt build",
+    "zip": "NODE_ENV=production wxt zip",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
