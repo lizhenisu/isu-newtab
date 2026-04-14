@@ -68,19 +68,19 @@ export function WeatherWidget() {
 
   if (state.kind === 'ready') return <WeatherCard forecast={state.forecast} city={preferences?.location?.city} />;
   const locationIssue = state.kind === 'location-error';
-  return <div className="weatherWidget weatherWidget--status">
+  return <div className="weatherWidget weatherWidget--status liquidGlassSurface">
     <WeatherIcon condition="partly-cloudy" isDay />
     <div>
       <strong>{t('weather')}</strong>
       <p>{state.kind === 'loading-location' ? t('weatherLocating') : state.kind === 'loading-weather' ? t('weatherLoading') : locationIssue ? t(`weatherLocation${state.error}`) : state.kind === 'weather-error' ? t('weatherUnavailable') : t('weatherLocationNeeded')}</p>
     </div>
-    {(state.kind === 'needs-location' || locationIssue || state.kind === 'weather-error') && <button type="button" className="weatherAction" onClick={state.kind === 'weather-error' ? () => setRefreshKey((value) => value + 1) : requestLocation}>{t(state.kind === 'weather-error' ? 'retry' : 'weatherUseCurrentLocation')}</button>}
+    {(state.kind === 'needs-location' || locationIssue || state.kind === 'weather-error') && <button type="button" className="weatherAction liquidGlassSurface liquidGlassSurface--control" onClick={state.kind === 'weather-error' ? () => setRefreshKey((value) => value + 1) : requestLocation}><span>{t(state.kind === 'weather-error' ? 'retry' : 'weatherUseCurrentLocation')}</span></button>}
   </div>;
 }
 
 function WeatherCard({ forecast, city }: { forecast: WeatherForecast; city?: string }) {
   const degree = forecast.unit === 'celsius' ? '°C' : '°F';
-  return <div className="weatherWidget">
+  return <div className="weatherWidget liquidGlassSurface">
     <div className="weatherHeader"><span className="weatherLocationName" title={city}>{city ?? t('weatherCurrentLocation')}</span></div>
     <div className="weatherCurrent"><WeatherIcon condition={forecast.condition} isDay={forecast.isDay} /><span className="weatherTemperature"><strong>{formatTemperature(forecast.temperature)}°</strong><span>{degree}</span></span><span>{t(`weather${conditionKey(forecast.condition)}`)}</span></div>
     <div className="weatherDetails"><span>{t('weatherFeelsLike')} {formatTemperature(forecast.apparentTemperature)}°</span><span>{t('weatherHighLow')} {formatTemperature(forecast.high)}° / {formatTemperature(forecast.low)}°</span><span>{t('weatherPrecipitation')} {Math.round(forecast.precipitationProbability)}%</span></div>
