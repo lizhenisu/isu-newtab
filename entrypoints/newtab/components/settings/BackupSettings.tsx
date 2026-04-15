@@ -40,6 +40,9 @@ export function BackupSettings() {
       if (imported.config.appearance.wallpaper.value.type === 'wallhaven') {
         await browser.runtime.sendMessage({ type: 'wallpaper:cache', url: imported.config.appearance.wallpaper.value.imageUrl }).catch(() => undefined);
       }
+      if (imported.config.appearance.wallpaper.value.type === 'bing') {
+        await browser.runtime.sendMessage({ type: 'wallpaper:bing:cache', url: imported.config.appearance.wallpaper.value.imageUrl }).catch(() => undefined);
+      }
       await browser.runtime.sendMessage({ type: 'sync:schedule' }).catch(() => undefined);
     } catch (reason) {
       setError(errorMessage(reason));
