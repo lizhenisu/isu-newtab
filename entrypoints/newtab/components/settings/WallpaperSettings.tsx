@@ -8,9 +8,12 @@ import { BUILTIN_WALLPAPER_IDS, BUILTIN_WALLPAPERS } from '../../../../core/wall
 import { searchWallhaven, type WallhavenPage } from '../../../../core/wallpaper/wallhaven';
 import { errorMessage } from './error-message';
 import { UnsplashPicker } from './UnsplashPicker';
+import { BingPicker } from './BingPicker';
 import { currentLanguageTag } from '../../../../core/browser/i18n';
-import type { Wallpaper, WallpaperRefreshInterval } from '../../../../core/domain/types';
+import type { BingWallpaperQuality, Wallpaper, WallpaperRefreshInterval } from '../../../../core/domain/types';
 import type { RandomWallpaperState } from '../../../../core/wallpaper/random';
+import { bingImageUrlForQuality, DEFAULT_BING_WALLPAPER_QUALITY } from '../../../../core/wallpaper/bing';
+import { RangeInput } from './RangeInput';
 
 export function WallpaperSettings() {
   const wallpaper = useAppStore((state) => state.config!.appearance.wallpaper.value);
@@ -19,14 +22,48 @@ export function WallpaperSettings() {
   const refresh = useAppStore((state) => state.refresh);
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
-  const [onlineSource, setOnlineSource] = useState<'wallhaven' | 'unsplash'>('wallhaven');
+  const [onlineSource, setOnlineSource] = useState<'wallhaven' | 'unsplash' | 'bing'>('wallhaven');
   const solidColor = useAppStore((state) => state.config!.appearance.solidColor.value);
+  const startupFadeMs = useAppStore((state) => state.config!.appearance.wallpaperStartupFadeMs.value);
+  const updateAppearance = useAppStore((state) => state.updateAppearance);
+  const [bingQuality, setBingQuality] = useState<BingWallpaperQuality>(DEFAULT_BING_WALLPAPER_QUALITY);
 
-  const selectWallpaper = async (next: Wallpaper, action: 'activate' | 'reconcile' = 'reconcile') => {
+  const reconcileOnlineWallpapers = () => Promise.all([
+    browser.runtime.sendMessage({ type: 'wallpaper:random:reconcile' }).catch(() => undefined),
+    browser.runtime.sendMessage({ type: 'wallpaper:bing:reconcile' }).catch(() => undefined),
+  ]);
+
+  const selectWallpaper = async (next: Wallpaper, action: 'activate' | 'reconcile' | 'bing-activate' = 'reconcile') => {
     await setWallpaper(next);
-    await browser.runtime.sendMessage({ type: action === 'activate' ? 'wallpaper:random:activate' : 'wallpaper:random:reconcile' }).catch(() => undefined);
+    const type = action === 'activate' ? 'wallpaper:random:activate' : action === 'bing-activate' ? 'wallpaper:bing:activate' : 'wallpaper:random:reconcile';
+    await browser.runtime.sendMessage({ type }).catch(() => undefined);
+    await reconcileOnlineWallpapers();
   };
-  const selectSolidWallpaper = () => void setSolidWallpaper(solidColor);
+  const selectSolidWallpaper = () => void setSolidWallpaper(solidColor).then(reconcileOnlineWallpapers);
+
+  useEffect(() => {
+    let active = true;
+    void appRepositories.config.getBingWallpaperQuality().then((quality) => {
+      if (active) setBingQuality(quality);
+    });
+    return () => { active = false; };
+  }, []);
+
+  const changeBingQuality = async (quality: BingWallpaperQuality) => {
+    try {
+      await appRepositories.config.setBingWallpaperQuality(quality);
+      setBingQuality(quality);
+      if (wallpaper.type === 'bing') {
+        const imageUrl = bingImageUrlForQuality(wallpaper.imageUrl, quality);
+        await browser.runtime.sendMessage({ type: 'wallpaper:bing:cache', url: imageUrl });
+        await selectWallpaper({ ...wallpaper, imageUrl, quality });
+      } else if (wallpaper.type === 'bing-daily') {
+        await selectWallpaper({ type: 'bing-daily', quality }, 'bing-activate');
+      }
+    } catch (reason) {
+      setError(errorMessage(reason));
+    }
+  };
 
   const upload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -35,7 +72,7 @@ export function WallpaperSettings() {
       const image = await processWallpaperImage(file);
       await appRepositories.assets.setUploadedWallpaper(image);
       await refresh();
-      await browser.runtime.sendMessage({ type: 'wallpaper:random:reconcile' }).catch(() => undefined);
+      await reconcileOnlineWallpapers();
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -66,29 +103,36 @@ export function WallpaperSettings() {
             value={solidColor}
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
-            onChange={(event) => void setSolidWallpaper(event.target.value)}
+            onChange={(event) => void setSolidWallpaper(event.target.value).then(reconcileOnlineWallpapers)}
           />
         </div>
         {BUILTIN_WALLPAPER_IDS.map((assetId) => <button key={assetId} type="button" aria-pressed={wallpaper.type === 'builtin' && wallpaper.assetId === assetId} className={`builtinPreview ${assetId} ${wallpaper.type === 'builtin' && wallpaper.assetId === assetId ? 'active' : ''}`} style={{ '--builtin-wallpaper': BUILTIN_WALLPAPERS[assetId] } as CSSProperties} onClick={() => void selectWallpaper({ type: 'builtin', assetId })}>{t(assetId)}</button>)}
-        <button type="button" className={`secondary wallpaperUploadChoice ${wallpaper.type === 'upload' ? 'active' : ''}`} aria-pressed={wallpaper.type === 'upload'} onClick={() => { void browser.runtime.sendMessage({ type: 'wallpaper:random:reconcile' }); fileInput.current?.click(); }}>{t('upload')}</button>
+        <button type="button" className={`secondary wallpaperUploadChoice ${wallpaper.type === 'upload' ? 'active' : ''}`} aria-pressed={wallpaper.type === 'upload'} onClick={() => { void reconcileOnlineWallpapers(); fileInput.current?.click(); }}>{t('upload')}</button>
         <button type="button" className={`secondary wallpaperRandomChoice ${wallpaper.type === 'wallhaven-random' ? 'active' : ''}`} aria-pressed={wallpaper.type === 'wallhaven-random'} onClick={() => void selectWallpaper({ type: 'wallhaven-random', interval: '1d' }, 'activate')}>{t('onlineRandom')}</button>
+        <button type="button" className={`secondary wallpaperBingDailyChoice ${wallpaper.type === 'bing-daily' ? 'active' : ''}`} aria-pressed={wallpaper.type === 'bing-daily'} onClick={() => void selectWallpaper({ type: 'bing-daily', quality: bingQuality }, 'bing-activate')}>{t('bingDaily')}</button>
         <input ref={fileInput} type="file" accept="image/*" hidden onChange={upload} />
       </div>
       {wallpaper.type === 'wallhaven-random' && <RandomWallpaperControls interval={wallpaper.interval} onIntervalChange={(interval) => selectWallpaper({ type: 'wallhaven-random', interval })} onRefresh={() => browser.runtime.sendMessage({ type: 'wallpaper:random:activate' })} />}
-      <label>{t('onlineSource')}<select value={onlineSource} onChange={(event) => setOnlineSource(event.target.value as 'wallhaven' | 'unsplash')}><option value="wallhaven">Wallhaven</option><option value="unsplash">Unsplash</option></select></label>
+      <label>{t('onlineSource')}<select value={onlineSource} onChange={(event) => setOnlineSource(event.target.value as 'wallhaven' | 'unsplash' | 'bing')}><option value="wallhaven">Wallhaven</option><option value="unsplash">Unsplash</option><option value="bing">Bing</option></select></label>
+      {(onlineSource === 'bing' || wallpaper.type === 'bing' || wallpaper.type === 'bing-daily') && <label>{t('bingQuality')}<select value={bingQuality} onChange={(event) => void changeBingQuality(event.target.value as BingWallpaperQuality)}>
+        <option value="1080p">{t('bingQuality1080p')}</option>
+        <option value="1440p">{t('bingQuality1440p')}</option>
+        <option value="4k">{t('bingQuality4k')}</option>
+      </select></label>}
       {onlineSource === 'wallhaven'
         ? <WallhavenPicker onSelect={async (item) => {
           await browser.runtime.sendMessage({ type: 'wallpaper:cache', url: item.path });
           await selectWallpaper({ type: 'wallhaven', imageUrl: item.path, sourceUrl: item.url, wallpaperId: item.id });
         }} />
-        : <UnsplashPicker onSelect={(item) => selectWallpaper({
-          type: 'unsplash',
-          imageUrl: item.imageUrl,
-          sourceUrl: item.sourceUrl,
-          photoId: item.id,
-          photographerName: item.photographerName,
-          photographerUrl: item.photographerUrl,
-        })} />}
+        : onlineSource === 'unsplash' ? <UnsplashPicker onSelect={async (item) => {
+          await browser.runtime.sendMessage({ type: 'wallpaper:unsplash:cache', url: item.imageUrl });
+          await selectWallpaper({ type: 'unsplash', imageUrl: item.imageUrl, sourceUrl: item.sourceUrl, photoId: item.id, photographerName: item.photographerName, photographerUrl: item.photographerUrl });
+        }} /> : <BingPicker onSelect={async (item) => {
+          const imageUrl = bingImageUrlForQuality(item.imageUrl, bingQuality);
+          await browser.runtime.sendMessage({ type: 'wallpaper:bing:cache', url: imageUrl });
+          await selectWallpaper({ type: 'bing', imageUrl, sourceUrl: item.sourceUrl, date: item.date, quality: bingQuality });
+        }} />}
+      <label>{t('wallpaperStartupFade')}<RangeInput min={0} max={2000} step={50} value={startupFadeMs} onChange={(event) => void updateAppearance('wallpaperStartupFadeMs', Number(event.target.value))} /><output>{startupFadeMs}ms</output></label>
       <WallpaperStatus />
       {error && <p className="errorText" role="alert">{error}</p>}
     </section>
@@ -165,6 +209,12 @@ function WallpaperStatus() {
     browser.storage.local.onChanged.addListener(listener);
     return () => browser.storage.local.onChanged.removeListener(listener);
   }, []);
-  if (status?.state !== 'error' || (wallpaper?.type !== 'wallhaven' && wallpaper?.type !== 'wallhaven-random')) return null;
-  return <div className="wallpaperStatus"><small className="errorText">{status.message}</small><button type="button" className="secondary" onClick={() => browser.runtime.sendMessage(wallpaper.type === 'wallhaven-random' ? { type: 'wallpaper:random:activate' } : { type: 'wallpaper:cache', url: wallpaper.imageUrl })}>{t('retry')}</button></div>;
+  if (status?.state !== 'error' || (wallpaper?.type !== 'wallhaven' && wallpaper?.type !== 'wallhaven-random' && wallpaper?.type !== 'bing' && wallpaper?.type !== 'bing-daily' && wallpaper?.type !== 'unsplash')) return null;
+  const request = wallpaper.type === 'wallhaven-random'
+    ? { type: 'wallpaper:random:activate' }
+    : wallpaper.type === 'bing-daily' ? { type: 'wallpaper:bing:activate' }
+      : wallpaper.type === 'bing' ? { type: 'wallpaper:bing:cache', url: wallpaper.imageUrl }
+        : wallpaper.type === 'unsplash' ? { type: 'wallpaper:unsplash:cache', url: wallpaper.imageUrl }
+          : { type: 'wallpaper:cache', url: wallpaper.imageUrl };
+  return <div className="wallpaperStatus"><small className="errorText">{status.message}</small><button type="button" className="secondary" onClick={() => browser.runtime.sendMessage(request)}>{t('retry')}</button></div>;
 }
