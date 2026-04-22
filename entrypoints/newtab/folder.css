@@ -1,12 +1,12 @@
 .folderPreview {
   grid-template-columns: repeat(3, 18px);
   grid-template-rows: repeat(3, 18px);
-  grid-auto-rows: 18px;
   align-content: start;
   justify-content: start;
   gap: 4px;
-  width: 82px;
-  height: 82px;
+  width: min(82px, 100%);
+  height: auto;
+  aspect-ratio: 1;
   padding: 10px;
   border: 1px solid rgba(255,255,255,.9);
   border-radius: 25px;
@@ -17,16 +17,47 @@
 .folderPreview > span {
   width: 18px;
   height: 18px;
+  overflow: hidden;
   border-radius: 6px;
   background: rgba(255,255,255,.98);
   box-shadow: 0 1px 3px rgba(60,64,67,.2);
 }
-.folderPreview img { width: 13px; height: 13px; }
+.folderPreview img { width: min(13px, 100%); height: min(13px, 100%); }
 .folderPreview.empty { display: block; padding: 0; }
-.desktopFolder:hover .folderPreview,
 .desktopFolder.active .folderPreview,
 .dashboardWidget.isFolderTarget .folderPreview {
   box-shadow: inset 0 1px 1px rgba(255,255,255,.98), 0 12px 28px rgba(60,64,67,.24), 0 0 0 3px rgba(26,115,232,.12);
+}
+.desktopFolder > strong { text-shadow: none; }
+.app[data-wallpaper-tone="light"] .desktopFolder > strong { text-shadow: none; }
+
+/* Folder previews use the same desktop glass as the widgets, while keeping
+   their compact 3×3 icon grid intact. */
+.folderPreview.liquidGlassSurface {
+  border-color: var(--liquid-glass-border);
+  background: var(--liquid-glass-fill);
+  backdrop-filter: blur(calc(var(--blur) + 16px)) saturate(155%) brightness(1.06);
+  box-shadow: var(--liquid-glass-shadow);
+}
+.desktopFolder.active .folderPreview.liquidGlassSurface,
+.dashboardWidget.isFolderTarget .folderPreview.liquidGlassSurface {
+  border-color: rgba(112,239,210,.9);
+  box-shadow: inset 0 1px 1px rgba(220,255,249,.82), inset 0 -1px 1px rgba(73,205,188,.22), 0 0 0 3px rgba(87,222,198,.24), 0 16px 30px rgba(3,62,72,.28);
+}
+
+.desktopFolder.active .folderPreview,
+.dashboardWidget.isFolderTarget .folderPreview { transform: scale(1.08); }
+
+/* Hover deliberately changes geometry only: the default glass rim and shadow
+   stay still, while an actual drag target keeps its clear teal feedback. */
+.desktopFolder:hover .folderPreview { transform: scale(1.08); }
+
+@media (min-width: 641px) and (max-width: 983px) {
+  .folderPreview { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(0, 1fr)); }
+  .folderPreview > span { width: 100%; height: 100%; }
+  .desktopFolder:hover .folderPreview { transform: scale(1.04); }
+  .desktopFolder.active .folderPreview,
+  .dashboardWidget.isFolderTarget .folderPreview { transform: scale(1.04); }
 }
 
 .modalBackdrop--center {
@@ -68,7 +99,6 @@
   font-size: 18px;
   font-weight: 400;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 7px rgba(255,255,255,.7);
   white-space: nowrap;
 }
 .modal--center .modalHeader .iconButton {
@@ -97,17 +127,12 @@
   backdrop-filter: blur(28px) saturate(125%);
   box-shadow: inset 0 1px 1px rgba(255,255,255,.96), 0 18px 42px rgba(60,64,67,.24);
 }
-.folderSurface .folderDragHint {
-  position: absolute;
-  right: 18px;
-  bottom: 8px;
-  margin: 0;
-  color: rgba(60,64,67,.62);
-  font-size: 10px;
-  opacity: 0;
-  transition: opacity .18s;
+.folderSurface.liquidGlassSurface {
+  border-color: var(--liquid-glass-border);
+  background: var(--liquid-glass-fill);
+  backdrop-filter: blur(calc(var(--blur) + 22px)) saturate(155%) brightness(1.06);
+  box-shadow: var(--liquid-glass-shadow);
 }
-.folderSurface:hover .folderDragHint { opacity: 1; }
 .folderSurface .folderDialogGrid {
   display: grid;
   grid-template-columns: repeat(3, 68px);
@@ -124,13 +149,23 @@
   border-radius: 18px;
   background: transparent;
 }
-.folderSurface .folderDialogItem.isDragging { z-index: 30; opacity: .82; filter: drop-shadow(0 18px 28px rgba(0,0,0,.42)); }
+.folderSurface .folderDialogItem.isDragging { opacity: .18; }
 .folderSurface .folderDialogItem .desktopShortcut { padding: 0; }
 .folderSurface .folderDialogItem .desktopShortcut > span:last-child { display: none; }
 .folderSurface .folderDialogItem .desktopIcon {
   width: 58px;
   height: 58px;
   border-radius: 16px;
+}
+.folderDragOverlay { width: 68px; pointer-events: none; }
+.folderSurface .folderDialogItem.isPendingDesktopDrop { opacity: .18; }
+.folderDragOverlay .desktopShortcut { padding: 0; }
+.folderDragOverlay .desktopShortcut > span:last-child { display: none; }
+.folderDragOverlay .desktopIcon {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  box-shadow: inset 1px 1px 1px #fff, 0 18px 28px rgba(0,0,0,.42);
 }
 .folderSurface .emptyFolder {
   grid-column: 1 / -1;
