@@ -5,10 +5,14 @@ type Motion = {
   from: Point;
   to: Point;
   startedAt: number;
+  duration: number;
   frame?: number;
 };
 
-export const DAMPED_LAYOUT_MOTION_DURATION = 460;
+/** Pixels per millisecond used by the layout handoff. Longer moves therefore
+ * take proportionally longer while retaining the same damped profile. */
+export const DAMPED_LAYOUT_SPEED_PX_PER_MS = .75;
+export const DAMPED_LAYOUT_MIN_DURATION = 280;
 
 export function dampedLayoutProgress(progress: number): number {
   const clamped = Math.max(0, Math.min(1, progress));
@@ -20,6 +24,30 @@ export function dampedLayoutPoint(from: Point, to: Point, progress: number): Poi
   return {
     x: from.x + (to.x - from.x) * eased,
     y: from.y + (to.y - from.y) * eased,
+  };
+}
+
+export function dampedLayoutDistance(from: Point, to: Point): number {
+  return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+export function dampedLayoutDuration(from: Point, to: Point): number {
+  return Math.max(DAMPED_LAYOUT_MIN_DURATION, Math.round(dampedLayoutDistance(from, to) / DAMPED_LAYOUT_SPEED_PX_PER_MS));
+}
+
+/** Converts a viewport measurement into the stable document coordinate space. */
+export function documentLayoutPoint(viewportPoint: Point, scrollOffset: Point): Point {
+  return {
+    x: viewportPoint.x + scrollOffset.x,
+    y: viewportPoint.y + scrollOffset.y,
+  };
+}
+
+/** Returns the CSS translation needed to paint a document point at its target. */
+export function layoutMotionTranslate(point: Point, target: Point): Point {
+  return {
+    x: point.x - target.x,
+    y: point.y - target.y,
   };
 }
 
@@ -48,7 +76,10 @@ export function useDampedLayoutMotion(
     // Clearing it gives the new layout target without disturbing drag transforms.
     node.style.translate = 'none';
     const rect = node.getBoundingClientRect();
-    const target = { x: rect.left, y: rect.top };
+    const target = documentLayoutPoint(
+      { x: rect.left, y: rect.top },
+      { x: window.scrollX, y: window.scrollY },
+    );
     targetRef.current = target;
 
     const reducedMotion = typeof window.matchMedia === 'function'
@@ -69,14 +100,14 @@ export function useDampedLayoutMotion(
     }
 
     stopMotion(motionRef, node);
-    const motion: Motion = { from: current, to: target, startedAt: now };
+    const motion: Motion = { from: current, to: target, startedAt: now, duration: dampedLayoutDuration(current, target) };
     motionRef.current = motion;
     node.dataset.layoutMotion = 'damped-quartic';
     const tick = (time: number) => {
       if (motionRef.current !== motion) return;
       const point = motionPosition(motion, time);
       applyPosition(node, point, target);
-      if (time - motion.startedAt < DAMPED_LAYOUT_MOTION_DURATION) {
+      if (time - motion.startedAt < motion.duration) {
         motion.frame = requestAnimationFrame(tick);
       } else {
         motionRef.current = undefined;
@@ -89,11 +120,12 @@ export function useDampedLayoutMotion(
 }
 
 function motionPosition(motion: Motion, time: number): Point {
-  return dampedLayoutPoint(motion.from, motion.to, (time - motion.startedAt) / DAMPED_LAYOUT_MOTION_DURATION);
+  return dampedLayoutPoint(motion.from, motion.to, (time - motion.startedAt) / motion.duration);
 }
 
 function applyPosition(node: HTMLElement, point: Point, target: Point): void {
-  node.style.translate = `${point.x - target.x}px ${point.y - target.y}px`;
+  const translate = layoutMotionTranslate(point, target);
+  node.style.translate = `${translate.x}px ${translate.y}px`;
 }
 
 function samePoint(left: Point, right: Point): boolean {
