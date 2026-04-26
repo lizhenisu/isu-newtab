@@ -5,6 +5,7 @@ import { App } from './App';
 import './style.css';
 import './settings.css';
 import './folder.css';
+import './modal-theme.css';
 
 document.title = t('newTabTitle');
 ReactDOM.createRoot(document.getElementById('root')!).render(
