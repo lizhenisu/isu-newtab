@@ -1,0 +1,295 @@
+.modalBackdrop[data-theme] {
+  --modal-drawer-backdrop: transparent;
+  --modal-drawer-backdrop-filter: none;
+  --modal-editor-backdrop: rgba(32,33,36,.28);
+  --modal-editor-backdrop-filter: none;
+  --modal-center-backdrop: rgba(32,33,36,.28);
+  --modal-center-backdrop-filter: none;
+  --modal-surface: #fff;
+  --modal-drawer-surface: #f8fafd;
+  --modal-surface-subtle: #f8fafd;
+  --modal-surface-control: #fff;
+  --modal-surface-hover: #f1f3f4;
+  --modal-surface-list: #fff;
+  --modal-border: #dadce0;
+  --modal-border-subtle: #e0e3e7;
+  --modal-divider: #eef0f2;
+  --modal-text: #202124;
+  --modal-muted: #5f6368;
+  --modal-label: #3c4043;
+  --modal-placeholder: #9aa0a6;
+  --modal-disabled: #80868b;
+  --modal-scrollbar: #c4c7c5;
+  --modal-range-track: #dadce0;
+  --modal-link: #1a73e8;
+  --modal-shadow: 0 8px 30px rgba(60,64,67,.3), 0 1px 3px rgba(60,64,67,.15);
+  --modal-drawer-shadow: -8px 0 24px rgba(60,64,67,.18);
+  --modal-folder-surface: linear-gradient(145deg, rgba(246,248,251,.9), rgba(218,223,231,.84));
+  --modal-folder-border: rgba(255,255,255,.9);
+  --modal-folder-shadow: inset 0 1px 1px rgba(255,255,255,.96), 0 18px 42px rgba(60,64,67,.24);
+  --modal-center-close: rgba(35,38,47,.45);
+  --modal-center-close-hover: rgba(35,38,47,.7);
+  --modal-center-close-text: #fff;
+  --modal-status-warning: #fef7e0;
+  --modal-status-warning-text: #8a4b00;
+  --modal-status-error: #fce8e6;
+  --modal-status-error-text: #b3261e;
+  --modal-color-scheme: light;
+}
+
+.modalBackdrop[data-theme="dark"] {
+  --modal-drawer-backdrop: transparent;
+  --modal-drawer-backdrop-filter: none;
+  --modal-editor-backdrop: rgba(32,33,36,.28);
+  --modal-editor-backdrop-filter: none;
+  --modal-center-backdrop: rgba(32,33,36,.28);
+  --modal-center-backdrop-filter: none;
+  --modal-surface: #202124;
+  --modal-drawer-surface: #17181b;
+  --modal-surface-subtle: #292a2e;
+  --modal-surface-control: #303136;
+  --modal-surface-hover: #3c4043;
+  --modal-surface-list: #27282c;
+  --modal-border: #5f6368;
+  --modal-border-subtle: #43464b;
+  --modal-divider: #3c4043;
+  --modal-text: #f1f3f4;
+  --modal-muted: #bdc1c6;
+  --modal-label: #e8eaed;
+  --modal-placeholder: #9aa0a6;
+  --modal-disabled: #9aa0a6;
+  --modal-scrollbar: #5f6368;
+  --modal-range-track: #5f6368;
+  --modal-link: #8ab4f8;
+  --modal-shadow: 0 18px 52px rgba(0,0,0,.58), 0 1px 2px rgba(255,255,255,.05);
+  --modal-drawer-shadow: -18px 0 52px rgba(0,0,0,.58), inset 1px 0 rgba(255,255,255,.05);
+  --modal-folder-surface: linear-gradient(145deg, #303136, #202124);
+  --modal-folder-border: #5f6368;
+  --modal-folder-shadow: inset 0 1px 1px rgba(255,255,255,.08), 0 18px 42px rgba(0,0,0,.54);
+  --modal-center-close: #3c4043;
+  --modal-center-close-hover: #5f6368;
+  --modal-center-close-text: #f1f3f4;
+  --modal-status-warning: #4d3800;
+  --modal-status-warning-text: #fdd663;
+  --modal-status-error: #5c1d1d;
+  --modal-status-error-text: #f2b8b5;
+  --modal-color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  .modalBackdrop[data-theme="system"] {
+    --modal-drawer-backdrop: transparent;
+    --modal-drawer-backdrop-filter: none;
+    --modal-editor-backdrop: rgba(32,33,36,.28);
+    --modal-editor-backdrop-filter: none;
+    --modal-center-backdrop: rgba(32,33,36,.28);
+    --modal-center-backdrop-filter: none;
+    --modal-surface: #202124;
+    --modal-drawer-surface: #17181b;
+    --modal-surface-subtle: #292a2e;
+    --modal-surface-control: #303136;
+    --modal-surface-hover: #3c4043;
+    --modal-surface-list: #27282c;
+    --modal-border: #5f6368;
+    --modal-border-subtle: #43464b;
+    --modal-divider: #3c4043;
+    --modal-text: #f1f3f4;
+    --modal-muted: #bdc1c6;
+    --modal-label: #e8eaed;
+    --modal-placeholder: #9aa0a6;
+    --modal-disabled: #9aa0a6;
+    --modal-scrollbar: #5f6368;
+    --modal-range-track: #5f6368;
+    --modal-link: #8ab4f8;
+    --modal-shadow: 0 18px 52px rgba(0,0,0,.58), 0 1px 2px rgba(255,255,255,.05);
+    --modal-drawer-shadow: -18px 0 52px rgba(0,0,0,.58), inset 1px 0 rgba(255,255,255,.05);
+    --modal-folder-surface: linear-gradient(145deg, #303136, #202124);
+    --modal-folder-border: #5f6368;
+    --modal-folder-shadow: inset 0 1px 1px rgba(255,255,255,.08), 0 18px 42px rgba(0,0,0,.54);
+    --modal-center-close: #3c4043;
+    --modal-center-close-hover: #5f6368;
+    --modal-center-close-text: #f1f3f4;
+    --modal-status-warning: #4d3800;
+    --modal-status-warning-text: #fdd663;
+    --modal-status-error: #5c1d1d;
+    --modal-status-error-text: #f2b8b5;
+    --modal-color-scheme: dark;
+  }
+}
+
+.modalBackdrop--drawer[data-theme] { background: var(--modal-drawer-backdrop); backdrop-filter: var(--modal-drawer-backdrop-filter); }
+.modalBackdrop--editor[data-theme] { background: var(--modal-editor-backdrop); backdrop-filter: var(--modal-editor-backdrop-filter); }
+.modalBackdrop--center[data-theme] { background: var(--modal-center-backdrop); backdrop-filter: var(--modal-center-backdrop-filter); }
+.modal[data-theme] {
+  --text: var(--modal-text);
+  --muted: var(--modal-muted);
+  --secondary: var(--modal-surface-control);
+  --hero-text: var(--modal-text);
+  --hero-muted: var(--modal-muted);
+  color: var(--modal-text);
+  color-scheme: var(--modal-color-scheme);
+}
+.modal[data-theme] select option {
+  color: var(--modal-text);
+  background: var(--modal-surface-control);
+}
+
+.modal--editor[data-theme] {
+  border-color: var(--modal-border);
+  color: var(--modal-text);
+  background: var(--modal-surface);
+  box-shadow: var(--modal-shadow);
+}
+.modal--editor[data-theme] .modalHeader h2,
+.modal--drawer[data-theme] .modalHeader h2 { color: var(--modal-text); }
+.modal--editor[data-theme] .iconButton,
+.modal--drawer[data-theme] .modalHeader .iconButton { color: var(--modal-muted); }
+.modal--editor[data-theme] .iconButton:hover,
+.modal--drawer[data-theme] .modalHeader .iconButton:hover { background: var(--modal-surface-hover); }
+.modal--editor[data-theme] .shortcutEditorForm label,
+.modal--editor[data-theme] .shortcutIconPicker__label,
+.modal--editor[data-theme] .shortcutIconPicker__fileName { color: var(--modal-label); }
+.modal--editor[data-theme] .shortcutEditorForm input,
+.modal--editor[data-theme] .shortcutEditorForm select,
+.modal--editor[data-theme] .shortcutEditorForm input:focus,
+.modal--editor[data-theme] .shortcutEditorForm select:focus,
+.modal--editor[data-theme] .shortcutIconPicker__empty,
+.modal--editor[data-theme] .shortcutIconPicker__selection,
+.modal--editor[data-theme] .shortcutEditorForm .formActions button {
+  border-color: var(--modal-border);
+  color: var(--modal-text);
+  background: var(--modal-surface-control);
+}
+.modal--editor[data-theme] .shortcutEditorForm input:hover,
+.modal--editor[data-theme] .shortcutEditorForm select:hover,
+.modal--editor[data-theme] .shortcutIconPicker__empty:hover,
+.modal--editor[data-theme] .shortcutEditorForm .formActions button:hover { border-color: var(--modal-border-subtle); background: var(--modal-surface-hover); }
+.modal--editor[data-theme] .shortcutEditorForm input::placeholder { color: var(--modal-placeholder); }
+.modal--editor[data-theme] .shortcutIconPicker__selection img { background: var(--modal-surface-hover); }
+.modal--editor[data-theme] .shortcutIconPicker__empty,
+.modal--editor[data-theme] .shortcutIconPicker__action { color: var(--modal-link); }
+.modal--editor[data-theme] .shortcutIconPicker__clear { color: var(--modal-muted); }
+.modal--editor[data-theme] .shortcutIconPicker__action:hover,
+.modal--editor[data-theme] .shortcutIconPicker__clear:hover { color: var(--modal-text); background: var(--modal-surface-hover); }
+.modal--editor[data-theme] .shortcutEditorForm .formActions button[type="submit"] { border-color: #1a73e8; color: #fff; background: #1a73e8; }
+.modal--editor[data-theme] .shortcutEditorForm .formActions button[type="submit"]:hover { border-color: #1765cc; background: #1765cc; }
+.modal--editor[data-theme] .shortcutEditorForm .formActions button { color: var(--modal-link); }
+.modal--editor[data-theme] .shortcutEditorForm .errorText { color: var(--modal-status-error-text); background: var(--modal-status-error); }
+
+.modal--drawer[data-theme] {
+  border-color: var(--modal-border);
+  color: var(--modal-text);
+  background-color: var(--modal-drawer-surface);
+  background-image: none;
+  box-shadow: var(--modal-drawer-shadow);
+  scrollbar-color: var(--modal-scrollbar) transparent;
+}
+.modal--drawer[data-theme]::-webkit-scrollbar-thumb { background: var(--modal-scrollbar); }
+.modal--drawer[data-theme] .modalHeader { border-color: var(--modal-border-subtle); background: var(--modal-drawer-surface); }
+.modal--drawer[data-theme] .settings section,
+.modal--drawer[data-theme] .settings section:first-child { border-color: var(--modal-border-subtle); background: var(--modal-surface); }
+.modal--drawer[data-theme] .settings h3,
+.modal--drawer[data-theme] .settingToggle,
+.modal--drawer[data-theme] .widgetVisibility { color: var(--modal-text) !important; }
+.modal--drawer[data-theme] .settingsSectionHeader p,
+.modal--drawer[data-theme] .settings label,
+.modal--drawer[data-theme] label:has(.rangeInput) output,
+.modal--drawer[data-theme] .settingsHint,
+.modal--drawer[data-theme] .historySourceChoices legend,
+.modal--drawer[data-theme] .randomWallpaperControls small,
+.modal--drawer[data-theme] .unsplashGrid figcaption,
+.modal--drawer[data-theme] .bingGrid figcaption,
+.modal--drawer[data-theme] .wallhavenPicker small,
+.modal--drawer[data-theme] .wallhavenPicker a,
+.modal--drawer[data-theme] .pager span,
+.modal--drawer[data-theme] .syncStatus,
+.modal--drawer[data-theme] .softwareInfoList dt,
+.modal--drawer[data-theme] .thirdPartyServiceList dt { color: var(--modal-muted); }
+.modal--drawer[data-theme] .settings label,
+.modal--drawer[data-theme] .colorChoice,
+.modal--drawer[data-theme] .wallpaperUploadChoice,
+.modal--drawer[data-theme] .wallpaperBingDailyChoice,
+.modal--drawer[data-theme] .categoryChoices label,
+.modal--drawer[data-theme] .thirdPartyServiceGroup h4 { color: var(--modal-label); }
+.modal--drawer[data-theme] input:not(.rangeInput):not([type="checkbox"]):not([type="color"]):not([type="file"]),
+.modal--drawer[data-theme] select {
+  border-color: var(--modal-border);
+  color: var(--modal-text);
+  background: var(--modal-surface-control);
+  box-shadow: none;
+}
+.modal--drawer[data-theme] input:not(.rangeInput):not([type="checkbox"]):not([type="color"]):not([type="file"]):hover,
+.modal--drawer[data-theme] select:hover { border-color: var(--modal-border-subtle); }
+.modal--drawer[data-theme] input::placeholder { color: var(--modal-placeholder); }
+.modal--drawer[data-theme] .rangeInput::-webkit-slider-runnable-track { background: linear-gradient(to right, #1a73e8 0, #1a73e8 var(--range-progress), var(--modal-range-track) var(--range-progress), var(--modal-range-track) 100%); }
+.modal--drawer[data-theme] .rangeInput::-moz-range-track { background: var(--modal-range-track); }
+.modal--drawer[data-theme] .settingToggle input[type="checkbox"]:not(:checked),
+.modal--drawer[data-theme] .widgetVisibility input[type="checkbox"]:not(:checked) { background: var(--modal-scrollbar); }
+.modal--drawer[data-theme] .widgetSettingsList,
+.modal--drawer[data-theme] .softwareInfoList,
+.modal--drawer[data-theme] .thirdPartyServiceList { border-color: var(--modal-border-subtle); }
+.modal--drawer[data-theme] .widgetSettingsList li,
+.modal--drawer[data-theme] .softwareInfoList > div,
+.modal--drawer[data-theme] .thirdPartyServiceList > div { border-color: var(--modal-divider); background: var(--modal-surface-list); }
+.modal--drawer[data-theme] button:not(.iconButton) {
+  border-color: var(--modal-border);
+  color: var(--modal-link);
+  background: var(--modal-surface-control);
+}
+.modal--drawer[data-theme] button:not(.iconButton):hover { border-color: var(--modal-border-subtle); background: var(--modal-surface-hover); }
+.modal--drawer[data-theme] button:not(.iconButton):disabled { color: var(--modal-disabled); background: var(--modal-surface-hover); }
+.modal--drawer[data-theme] .historySourceChoices button:disabled {
+  border-color: #1a73e8;
+  color: #fff;
+  background: #1a73e8;
+}
+.modal--drawer[data-theme] button.builtinPreview,
+.modal--drawer[data-theme] button.builtinPreview:hover {
+  color: #fff;
+  background: var(--builtin-wallpaper);
+  text-shadow: 0 1px 4px rgba(0,0,0,.55);
+}
+.modal--drawer[data-theme] .colorChoice.active,
+.modal--drawer[data-theme] .builtinPreview.active,
+.modal--drawer[data-theme] .wallpaperUploadChoice.active,
+.modal--drawer[data-theme] .wallpaperRandomChoice.active,
+.modal--drawer[data-theme] .wallpaperBingDailyChoice.active { border-color: #1a73e8; }
+.modal--drawer[data-theme] .colorChoice.active:hover,
+.modal--drawer[data-theme] .builtinPreview.active:hover,
+.modal--drawer[data-theme] .wallpaperUploadChoice.active:hover,
+.modal--drawer[data-theme] .wallpaperRandomChoice.active:hover,
+.modal--drawer[data-theme] .wallpaperBingDailyChoice.active:hover { border-color: #d2e3fc; }
+.modal--drawer[data-theme] .colorChoice,
+.modal--drawer[data-theme] .wallpaperUploadChoice,
+.modal--drawer[data-theme] .wallpaperRandomChoice,
+.modal--drawer[data-theme] .wallpaperBingDailyChoice,
+.modal--drawer[data-theme] .randomWallpaperControls,
+.modal--drawer[data-theme] .syncStatus { border-color: var(--modal-border-subtle); background: var(--modal-surface-subtle); }
+.modal--drawer[data-theme] .colorChoice input[type="color"] { border-color: var(--modal-border); background: var(--modal-surface-control); }
+.modal--drawer[data-theme] .syncStatus.warning { color: var(--modal-status-warning-text); background: var(--modal-status-warning); }
+.modal--drawer[data-theme] .syncStatus.error,
+.modal--drawer[data-theme] .syncStatus.conflict,
+.modal--drawer[data-theme] .errorText { color: var(--modal-status-error-text); background: var(--modal-status-error); }
+.modal--drawer[data-theme] .conflictBox { border-color: var(--modal-status-error-text); background: var(--modal-surface); }
+.modal--drawer[data-theme] .softwareInfoList dd,
+.modal--drawer[data-theme] .thirdPartyServiceList dd { color: var(--modal-text); }
+.modal--drawer[data-theme] .softwareInfoList a,
+.modal--drawer[data-theme] .thirdPartyServiceList a,
+.modal--drawer[data-theme] .wallhavenPicker a { color: var(--modal-link); }
+
+.modal--center[data-theme] { color: var(--modal-text); }
+.modal--center[data-theme] .modalHeader h2 { color: var(--modal-text); }
+.modal--center[data-theme] .modalHeader .iconButton { color: var(--modal-center-close-text); background: var(--modal-center-close); }
+.modal--center[data-theme] .modalHeader .iconButton:hover { background: var(--modal-center-close-hover); }
+.modal--center[data-theme] .folderSurface {
+  border-color: var(--modal-folder-border);
+  background: var(--modal-folder-surface);
+  box-shadow: var(--modal-folder-shadow);
+}
+.modal--center[data-theme] .folderSurface.liquidGlassSurface {
+  border-color: var(--liquid-glass-border);
+  background: var(--liquid-glass-fill);
+  backdrop-filter: blur(calc(var(--blur) + 22px)) saturate(155%) brightness(1.06);
+  box-shadow: var(--liquid-glass-shadow);
+}
+.modal--center[data-theme] .emptyFolder { color: var(--modal-muted); }
