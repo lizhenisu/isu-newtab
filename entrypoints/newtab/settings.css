@@ -180,7 +180,8 @@
 .modal--drawer .colorChoice,
 .modal--drawer .builtinPreview,
 .modal--drawer .wallpaperUploadChoice,
-.modal--drawer .wallpaperRandomChoice {
+.modal--drawer .wallpaperRandomChoice,
+.modal--drawer .wallpaperBingDailyChoice {
   position: relative;
   min-height: 68px;
   overflow: hidden;
@@ -194,16 +195,18 @@
 .modal--drawer button.builtinPreview,
 .modal--drawer button.builtinPreview:hover { color: #fff; background: var(--builtin-wallpaper); font-weight: 600; text-shadow: 0 1px 4px rgba(0,0,0,.55); }
 .modal--drawer .wallpaperUploadChoice,
-.modal--drawer .wallpaperRandomChoice { color: #3c4043; background: #f8fafd; }
-.modal--drawer .wallpaperRandomChoice { background: linear-gradient(135deg, #1a73e8, #7baaf7); color: #fff; }
+.modal--drawer .wallpaperRandomChoice,
+.modal--drawer .wallpaperBingDailyChoice { color: #3c4043; background: #f8fafd; }
 .modal--drawer .colorChoice.active,
 .modal--drawer .builtinPreview.active,
 .modal--drawer .wallpaperUploadChoice.active,
-.modal--drawer .wallpaperRandomChoice.active { border-width: 2px; border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,.12); }
+.modal--drawer .wallpaperRandomChoice.active,
+.modal--drawer .wallpaperBingDailyChoice.active { border-width: 2px; border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,.12); }
 .modal--drawer .colorChoice.active:hover,
 .modal--drawer .builtinPreview.active:hover,
 .modal--drawer .wallpaperUploadChoice.active:hover,
-.modal--drawer .wallpaperRandomChoice.active:hover { border-color: #d2e3fc; }
+.modal--drawer .wallpaperRandomChoice.active:hover,
+.modal--drawer .wallpaperBingDailyChoice.active:hover { border-color: #d2e3fc; }
 .modal--drawer .randomWallpaperControls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; padding: 12px; border: 1px solid #e8eaed; border-radius: 12px; background: #f8fafd; }
 .modal--drawer .randomWallpaperControls small { grid-column: 1 / -1; color: #5f6368; }
 
@@ -218,11 +221,12 @@
   box-shadow: none;
 }
 .modal--drawer .wallhavenGrid { gap: 8px; }
-.modal--drawer .wallhavenGrid button { min-height: 0; border: 0; border-radius: 10px; }
+.modal--drawer .wallhavenGrid button { min-height: 0; padding: 0; border: 0; border-radius: 10px; }
 .modal--drawer .wallhavenGrid img { transition: transform .18s; }
 .modal--drawer .wallhavenGrid button:hover img { transform: scale(1.035); }
 .modal--drawer .unsplashCredential { grid-template-columns: minmax(0, 1fr) auto; }
 .modal--drawer .unsplashGrid figcaption { color: #5f6368; }
+.modal--drawer .bingGrid figcaption { color: #5f6368; }
 .modal--drawer .wallhavenPicker small,
 .modal--drawer .wallhavenPicker a { color: #5f6368; }
 .modal--drawer .wallhavenPicker a { color: #1a73e8; }
@@ -232,6 +236,8 @@
 .modal--drawer .syncStatus { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border-radius: 10px; color: #5f6368; background: #f8fafd; line-height: 1.5; }
 .modal--drawer .syncStatus::before { content: ""; flex: 0 0 auto; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: #5f6368; }
 .modal--drawer .syncStatus.syncing::before { background: #1a73e8; box-shadow: 0 0 0 4px rgba(26,115,232,.12); }
+.modal--drawer .syncStatus.auth-required { color: #8a4b00; background: #fef7e0; }
+.modal--drawer .syncStatus.auth-required::before { background: #f9ab00; }
 .modal--drawer .syncStatus.warning { color: #8a4b00; background: #fef7e0; }
 .modal--drawer .syncStatus.warning::before { background: #f9ab00; }
 .modal--drawer .syncStatus.error,
@@ -239,6 +245,10 @@
 .modal--drawer .syncStatus.error::before,
 .modal--drawer .syncStatus.conflict::before { background: #d93025; }
 .modal--drawer .syncStatus > p { flex: 1; }
+.modal--drawer .syncDriveActions { display: grid; gap: 8px; margin-top: 10px; }
+.modal--drawer .syncDriveActions > p { margin: 0; color: #5f6368; font-size: .875rem; line-height: 1.45; }
+.modal--drawer .syncDriveActions > button { justify-self: start; }
+.modal--drawer .syncDriveError { color: #b3261e !important; }
 .modal--drawer .conflictBox { border-color: #f6aea9; background: #fff; }
 
 .modal--drawer .backupActions { display: grid !important; }
@@ -261,8 +271,6 @@
 .modal--drawer .thirdPartyServiceList a { overflow-wrap: anywhere; color: #1a73e8; text-decoration: none; }
 .modal--drawer .thirdPartyServiceList a:hover { text-decoration: underline; }
 .modal--drawer .backupActionGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.modal--drawer .backupActionGrid button:first-child { border-color: #1a73e8; color: #fff; background: #1a73e8; }
-.modal--drawer .backupActionGrid button:first-child:hover { border-color: #1765cc; background: #1765cc; }
 .modal--drawer .backupActionGrid button:last-child { grid-column: 1 / -1; }
 
 .modal--drawer .errorText { margin: 0; padding: 10px 12px; border-radius: 10px; color: #b3261e; background: #fce8e6; font-size: 12px; line-height: 1.45; }
