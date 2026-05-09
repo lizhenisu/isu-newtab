@@ -1,7 +1,7 @@
 import { browser } from 'wxt/browser';
 
 export type SyncStatusRecord = {
-  state: 'idle' | 'syncing' | 'warning' | 'error' | 'conflict' | 'disabled';
+  state: 'idle' | 'syncing' | 'warning' | 'error' | 'conflict' | 'disabled' | 'auth-required';
   message?: string;
   usedBytes?: number;
   updatedAt: string;
