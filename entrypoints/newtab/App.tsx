@@ -2,16 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { browser } from 'wxt/browser';
 import { t } from '../../core/browser/i18n';
 import { DEFAULT_GROUP_ID, type Shortcut, type ShortcutGroup } from '../../core/domain/types';
-import { DEFAULT_SOLID_WALLPAPER_COLOR } from '../../core/domain/defaults';
 import { wallpaperTone } from '../../core/domain/wallpaper-tone';
 import { builtinWallpaperBackground } from '../../core/wallpaper/builtin';
-import { createWallpaperBootstrapThumbnail, getWallpaperBootstrapPreview, setWallpaperBootstrapPreview } from '../../core/wallpaper/bootstrap-preview';
 import { RANDOM_WALLPAPER_ASSET_KEY, RANDOM_WALLPAPER_DISPLAY_PORT, type RandomWallpaperState } from '../../core/wallpaper/random';
+import { BING_DAILY_ASSET_KEY, BING_DAILY_DISPLAY_PORT, type BingDailyState } from '../../core/wallpaper/bing';
 import type { WidgetPosition } from '../../core/domain/widgets';
 import { appRepositories } from '../../core/storage/repository';
 import { useAppStore } from '../../core/state/store';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ShortcutEditor } from './components/ShortcutEditor';
+import { ShortcutIconCacheProvider, useShortcutIconCache } from './components/ShortcutIconCache';
+import { clearLoadedShortcutIcon } from './components/shortcut-icon-loader';
 import { useSearchHistorySource } from './hooks/useSearchHistorySource';
 import { useAppLanguage } from './hooks/useAppLanguage';
 import type { DashboardWidgetContext } from './widgets/registry';
@@ -28,16 +29,23 @@ export function App() {
   const actions = useAppStore();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editing, setEditing] = useState<Shortcut | { kind: 'new'; position?: WidgetPosition; groupId?: string }>();
+  const [shortcutIconRefresh, setShortcutIconRefresh] = useState<{ shortcutId: string; version: number }>();
   const [clock, setClock] = useState(() => new Date());
   const searchHistory = useSearchHistorySource();
   const appLanguage = useAppLanguage();
 
   useEffect(() => { void initialize(); return appRepositories.config.subscribe(() => void refresh()); }, [initialize, refresh]);
+  useEffect(() => { localStorage.removeItem('isu:wallpaper-bootstrap-preview'); }, []);
   useEffect(() => { const timer = window.setInterval(() => setClock(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   const wallpaperBackground = useWallpaperBackground(config?.appearance.wallpaper.value);
 
   useRandomWallpaperDisplayReady(
+    config?.appearance.wallpaper.value.type === 'wallhaven-random',
     wallpaperBackground?.source === 'asset' && wallpaperBackground.identity.startsWith('wallhaven-random:'),
+  );
+  useDailyWallpaperDisplayReady(
+    config?.appearance.wallpaper.value.type === 'bing-daily',
+    BING_DAILY_DISPLAY_PORT,
   );
 
   if (loading || !config || !searchHistory.source || !appLanguage.language) return <div className="loading">{error ?? '…'}</div>;
@@ -77,37 +85,55 @@ export function App() {
 
   return (
     <div className="app" data-theme={theme} data-wallpaper-tone={backgroundTone} style={{ '--blur': `${appearancePreview.blur ?? config.appearance.blur.value}px` } as React.CSSProperties}>
-      <WallpaperBackdrop background={wallpaperBackground} />
+      <WallpaperBackdrop background={wallpaperBackground} startupFadeMs={config.appearance.wallpaperStartupFadeMs.value} />
       <div className="backdrop" />
-      <button className="settingsButton" type="button" onClick={() => setSettingsOpen(true)} aria-label={t('settings')}>⚙</button>
+      <button className="settingsButton shortcutWaterShell" type="button" onClick={() => setSettingsOpen(true)} aria-label={t('settings')}><span aria-hidden="true">⚙</span></button>
       <div className="content">
-        <PieceBoard pieces={pieces} context={widgetContext} onPiecesChanged={actions.refresh} />
+        <CachedPieceBoard pieces={pieces} context={widgetContext} onPiecesChanged={actions.refresh} shortcutIconRefresh={shortcutIconRefresh} />
         {config.appearance.wallpaper.value.type === 'unsplash' && <UnsplashAttribution wallpaper={config.appearance.wallpaper.value} />}
       </div>
       {editing && <ShortcutEditor shortcut={'kind' in editing ? undefined : editing} groups={config.groups} defaultGroupId={'kind' in editing ? editing.groupId ?? DEFAULT_GROUP_ID : DEFAULT_GROUP_ID}
-        onSave={(input) => 'kind' in editing ? actions.addShortcut({ ...input, ...(input.groupId === DEFAULT_GROUP_ID ? { position: editing.position } : {}) }) : actions.updateShortcut(editing.id, input)}
+        onSave={async (input, iconFile) => {
+          const shortcut = 'kind' in editing
+            ? await actions.addShortcut({ ...input, ...(input.groupId === DEFAULT_GROUP_ID ? { position: editing.position } : {}) })
+            : (await actions.updateShortcut(editing.id, input), { id: editing.id });
+          if (iconFile) {
+            clearLoadedShortcutIcon(shortcut.id);
+            await appRepositories.assets.putShortcutIcon(shortcut.id, iconFile, 'local-upload');
+            await actions.refresh();
+            setShortcutIconRefresh((current) => ({ shortcutId: shortcut.id, version: (current?.version ?? 0) + 1 }));
+          }
+        }}
         onClose={() => setEditing(undefined)} />}
       {settingsOpen && <SettingsPanel language={appLanguage.language} onLanguageChange={appLanguage.selectLanguage} searchHistorySource={searchHistory.source} onSearchHistorySourceChange={searchHistory.selectSource} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
 
+function CachedPieceBoard({ pieces, context, onPiecesChanged, shortcutIconRefresh }: { pieces: import('../../core/domain/pieces').Piece[]; context: DashboardWidgetContext; onPiecesChanged: () => Promise<void>; shortcutIconRefresh?: { shortcutId: string; version: number } }) {
+  const cache = useShortcutIconCache(context.config.shortcuts.map((shortcut) => shortcut.id), shortcutIconRefresh);
+  if (!cache.ready) return null;
+  return <ShortcutIconCacheProvider urls={cache.urls}><PieceBoard pieces={pieces} context={context} onPiecesChanged={onPiecesChanged} /></ShortcutIconCacheProvider>;
+}
+
 type WallpaperBackground = {
   identity: string;
   background: string;
-  source: 'asset' | 'bootstrap' | 'static';
+  source: 'asset' | 'static';
   dispose?: () => void;
 };
 
 function useWallpaperBackground(wallpaper?: NonNullable<ReturnType<typeof useAppStore.getState>['config']>['appearance']['wallpaper']['value']): WallpaperBackground | undefined {
   const [localBackground, setLocalBackground] = useState<WallpaperBackground>();
-  const [bootstrapPreview] = useState(getWallpaperBootstrapPreview);
   const [randomState, setRandomState] = useState<RandomWallpaperState>();
+  const [bingDailyState, setBingDailyState] = useState<BingDailyState>();
+  const [assetVersion, setAssetVersion] = useState(0);
   const objectUrlDisposers = useRef(new Set<() => void>());
   useEffect(() => () => {
     objectUrlDisposers.current.forEach((dispose) => dispose());
     objectUrlDisposers.current.clear();
   }, []);
+  useEffect(() => appRepositories.config.subscribe(() => setAssetVersion((version) => version + 1)), []);
   useEffect(() => {
     if (wallpaper?.type !== 'wallhaven-random') {
       setRandomState(undefined);
@@ -120,13 +146,30 @@ function useWallpaperBackground(wallpaper?: NonNullable<ReturnType<typeof useApp
     void load();
     return appRepositories.config.subscribe(() => void load());
   }, [wallpaper?.type]);
-  const randomBootstrapIdentity = bootstrapPreview?.identity.startsWith('wallhaven-random:') ? bootstrapPreview.identity : undefined;
+  useEffect(() => {
+    if (wallpaper?.type !== 'bing-daily') {
+      setBingDailyState(undefined);
+      return;
+    }
+    let active = true;
+    const load = () => appRepositories.config.getBingDailyState().then((value) => {
+      if (active) setBingDailyState(value);
+    });
+    void load();
+    return appRepositories.config.subscribe(() => void load());
+  }, [wallpaper?.type]);
   const localAsset = wallpaper?.type === 'upload'
     ? { key: wallpaper.assetKey, identity: `upload:${wallpaper.assetKey}` }
     : wallpaper?.type === 'wallhaven'
       ? { key: 'wallpaper/wallhaven-current', identity: `wallhaven:${wallpaper.imageUrl}` }
-      : wallpaper?.type === 'wallhaven-random' && (randomState || randomBootstrapIdentity)
-        ? { key: RANDOM_WALLPAPER_ASSET_KEY, identity: randomState ? `wallhaven-random:${randomState.imageUrl}` : randomBootstrapIdentity! }
+      : wallpaper?.type === 'bing'
+        ? { key: 'wallpaper/bing-current', identity: `bing:${wallpaper.imageUrl}` }
+      : wallpaper?.type === 'unsplash'
+        ? { key: 'wallpaper/unsplash-current', identity: `unsplash:${wallpaper.imageUrl}` }
+      : wallpaper?.type === 'wallhaven-random' && randomState
+        ? { key: RANDOM_WALLPAPER_ASSET_KEY, identity: `wallhaven-random:${randomState.imageUrl}` }
+        : wallpaper?.type === 'bing-daily' && bingDailyState
+          ? { key: BING_DAILY_ASSET_KEY, identity: `bing-daily:${bingDailyState.imageUrl}` }
       : undefined;
   useEffect(() => {
     let active = true;
@@ -143,62 +186,69 @@ function useWallpaperBackground(wallpaper?: NonNullable<ReturnType<typeof useApp
       const background = `url("${currentUrl}")`;
       objectUrlDisposers.current.add(dispose);
       setLocalBackground({ identity: localAsset.identity, background, source: 'asset', dispose });
-      if (bootstrapPreview?.identity !== localAsset.identity) {
-        void createWallpaperBootstrapThumbnail(blob).then((preview) => {
-          if (active) setWallpaperBootstrapPreview({ identity: localAsset.identity, background: preview });
-        }).catch(() => undefined);
-      }
     });
     else setLocalBackground(undefined);
     return () => { active = false; };
-  }, [bootstrapPreview?.identity, localAsset?.identity]);
-  useEffect(() => {
-    if (!wallpaper) return;
-    if (wallpaper.type === 'solid') setWallpaperBootstrapPreview({ identity: `solid:${wallpaper.color}`, background: wallpaper.color });
-    else if (wallpaper.type === 'builtin') setWallpaperBootstrapPreview({ identity: `builtin:${wallpaper.assetId}`, background: builtinWallpaperBackground(wallpaper.assetId) });
-    else if (wallpaper.type === 'unsplash') setWallpaperBootstrapPreview({ identity: `unsplash:${wallpaper.imageUrl}`, background: `url("${wallpaper.imageUrl}")` });
-  }, [wallpaper]);
+  }, [assetVersion, localAsset?.identity]);
   return useMemo(() => {
-    if (!wallpaper) return bootstrapPreview ? { identity: bootstrapPreview.identity, background: bootstrapPreview.background, source: 'bootstrap' } : undefined;
+    if (!wallpaper) return undefined;
     if (wallpaper.type === 'solid') return { identity: `solid:${wallpaper.color}`, background: wallpaper.color, source: 'static' };
-    if (wallpaper.type === 'upload' || wallpaper.type === 'wallhaven') {
-      const identity = wallpaper.type === 'upload' ? `upload:${wallpaper.assetKey}` : `wallhaven:${wallpaper.imageUrl}`;
+    if (wallpaper.type === 'upload' || wallpaper.type === 'wallhaven' || wallpaper.type === 'bing' || wallpaper.type === 'unsplash') {
+      const identity = wallpaper.type === 'upload'
+        ? `upload:${wallpaper.assetKey}`
+        : wallpaper.type === 'wallhaven' ? `wallhaven:${wallpaper.imageUrl}`
+          : wallpaper.type === 'bing' ? `bing:${wallpaper.imageUrl}` : `unsplash:${wallpaper.imageUrl}`;
       if (localBackground?.identity === identity) return localBackground;
-      return bootstrapPreview?.identity === identity ? { identity, background: bootstrapPreview.background, source: 'bootstrap' } : undefined;
+      return undefined;
     }
     if (wallpaper.type === 'wallhaven-random') {
       const identity = randomState ? `wallhaven-random:${randomState.imageUrl}` : undefined;
       if (localBackground?.identity === identity) return localBackground;
-      if (identity && bootstrapPreview?.identity === identity) return { identity, background: bootstrapPreview.background, source: 'bootstrap' };
-      return bootstrapPreview?.identity.startsWith('wallhaven-random:')
-        ? { identity: bootstrapPreview.identity, background: bootstrapPreview.background, source: 'bootstrap' }
-        : undefined;
+      return undefined;
     }
-    if (wallpaper.type === 'unsplash') return { identity: `unsplash:${wallpaper.imageUrl}`, background: `url("${wallpaper.imageUrl}")`, source: 'static' };
+    if (wallpaper.type === 'bing-daily') {
+      const identity = bingDailyState ? `bing-daily:${bingDailyState.imageUrl}` : undefined;
+      if (localBackground?.identity === identity) return localBackground;
+      return undefined;
+    }
     return { identity: `builtin:${wallpaper.assetId}`, background: builtinWallpaperBackground(wallpaper.assetId), source: 'static' };
-  }, [bootstrapPreview, localBackground, randomState, wallpaper]);
+  }, [bingDailyState, localBackground, randomState, wallpaper]);
 }
 
-function useRandomWallpaperDisplayReady(displayed: boolean): void {
+function useRandomWallpaperDisplayReady(enabled: boolean, visible: boolean): void {
+  useWallpaperDisplaySignal(enabled, RANDOM_WALLPAPER_DISPLAY_PORT, 'ready');
+  useWallpaperDisplaySignal(visible, RANDOM_WALLPAPER_DISPLAY_PORT, 'visible', WALLPAPER_FADE_DURATION_MS);
+}
+
+function useDailyWallpaperDisplayReady(displayed: boolean, portName: string): void {
+  useWallpaperDisplaySignal(displayed, portName, 'ready');
+}
+
+function useWallpaperDisplaySignal(enabled: boolean, portName: string, signal: 'ready' | 'visible', delayMs = 0): void {
   useEffect(() => {
-    if (!displayed) return;
+    if (!enabled) return;
     let active = true;
     let port: ReturnType<typeof browser.runtime.connect> | undefined;
     let nestedFrame: number | undefined;
+    let timer: number | undefined;
     const frame = window.requestAnimationFrame(() => {
       nestedFrame = window.requestAnimationFrame(() => {
         if (!active) return;
-        port = browser.runtime.connect({ name: RANDOM_WALLPAPER_DISPLAY_PORT });
-        port.postMessage({ type: 'ready' });
+        timer = window.setTimeout(() => {
+          if (!active) return;
+          port = browser.runtime.connect({ name: portName });
+          port.postMessage({ type: signal });
+        }, delayMs);
       });
     });
     return () => {
       active = false;
       window.cancelAnimationFrame(frame);
       if (nestedFrame !== undefined) window.cancelAnimationFrame(nestedFrame);
+      if (timer !== undefined) window.clearTimeout(timer);
       port?.disconnect();
     };
-  }, [displayed]);
+  }, [delayMs, enabled, portName, signal]);
 }
 
 type FrozenWallpaperLayer = WallpaperBackground & {
@@ -210,14 +260,14 @@ type WallpaperLayers = {
   frozen: FrozenWallpaperLayer[];
   incoming?: FrozenWallpaperLayer;
   transitionId: number;
+  startup?: boolean;
 };
 
 const WALLPAPER_FADE_DURATION_MS = 2_000;
 
-function WallpaperBackdrop({ background }: { background?: WallpaperBackground }) {
-  const initialBackground = useRef<WallpaperBackground>({ identity: 'initial-white', background: DEFAULT_SOLID_WALLPAPER_COLOR, source: 'static' }).current;
+function WallpaperBackdrop({ background, startupFadeMs }: { background?: WallpaperBackground; startupFadeMs: number }) {
   const [layers, setLayers] = useState<WallpaperLayers>(() => ({
-    frozen: [{ ...(background ?? initialBackground), key: 'wallpaper:initial', opacity: 1 }],
+    frozen: [],
     transitionId: 0,
   }));
   const layersRef = useRef(layers);
@@ -281,7 +331,9 @@ function WallpaperBackdrop({ background }: { background?: WallpaperBackground })
       cancelScheduledCallbacks();
       const previous = layersRef.current;
       const frozen = freezeVisibleLayers(previous);
-      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      const startup = frozen.length === 0;
+      const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      if (reducedMotion || (startup && startupFadeMs === 0)) {
         commitLayers({ frozen: [{ ...background, key: `wallpaper:stable:${id}`, opacity: 1 }], transitionId: id });
         disposeLayers(frozen, background);
         return;
@@ -290,12 +342,13 @@ function WallpaperBackdrop({ background }: { background?: WallpaperBackground })
         frozen,
         incoming: { ...background, key: `wallpaper:incoming:${id}`, opacity: 0 },
         transitionId: id,
+        startup,
       });
-      fallbackTimer.current = window.setTimeout(() => finishTransition(id), WALLPAPER_FADE_DURATION_MS + 100);
+      fallbackTimer.current = window.setTimeout(() => finishTransition(id), (startup ? startupFadeMs : WALLPAPER_FADE_DURATION_MS) + 100);
     };
     void preloadWallpaper(background.background).then(beginTransition, () => undefined);
     return () => { cancelled = true; };
-  }, [background]);
+  }, [background, startupFadeMs]);
   useEffect(() => () => {
     cancelScheduledCallbacks();
     disposeLayers([...layersRef.current.frozen, ...(layersRef.current.incoming ? [layersRef.current.incoming] : [])]);
@@ -309,10 +362,10 @@ function WallpaperBackdrop({ background }: { background?: WallpaperBackground })
     else layerElements.current.delete(key);
   };
   const visibleCurrent = layers.incoming ?? layers.frozen.at(-1);
-  return <div className={`wallpaperBackdrop ${layers.incoming ? 'wallpaperBackdrop--transitioning' : ''}`} aria-hidden="true" data-wallpaper-current={visibleCurrent?.identity} data-wallpaper-source={visibleCurrent?.source} data-wallpaper-incoming={layers.incoming?.identity}>
+  return <div className={`wallpaperBackdrop ${layers.incoming ? 'wallpaperBackdrop--transitioning' : ''} ${layers.startup ? 'wallpaperBackdrop--startup' : ''}`} style={{ '--wallpaper-startup-fade': `${startupFadeMs}ms` } as React.CSSProperties} aria-hidden="true" data-wallpaper-current={visibleCurrent?.identity} data-wallpaper-source={visibleCurrent?.source} data-wallpaper-incoming={layers.incoming?.identity}>
     {layers.frozen.map((layer) => <div key={layer.key} ref={registerLayer(layer.key)} className="wallpaperLayer wallpaperLayer--frozen" data-wallpaper-layer={layer.identity} style={style(layer)} />)}
     {layers.incoming && <div key={layers.incoming.key} ref={registerLayer(layers.incoming.key)} className="wallpaperLayer wallpaperLayer--current wallpaperLayer--incoming" data-wallpaper-layer={layers.incoming.identity} style={style(layers.incoming)} onAnimationEnd={(event) => {
-      if (event.animationName === 'wallpaper-dissolve') finishTransition(layers.transitionId);
+      if (event.animationName === 'wallpaper-dissolve' || event.animationName === 'wallpaper-startup-fade') finishTransition(layers.transitionId);
     }} />}
   </div>;
 }
@@ -337,7 +390,7 @@ function preloadWallpaper(background: string): Promise<void> {
   if (!url) return Promise.resolve();
   return new Promise((resolve, reject) => {
     const image = new Image();
-    image.onload = () => resolve();
+    image.onload = () => { void image.decode?.().catch(() => undefined).then(resolve); };
     image.onerror = () => reject(new Error('WALLPAPER_PRELOAD_FAILED'));
     image.src = url;
   });
