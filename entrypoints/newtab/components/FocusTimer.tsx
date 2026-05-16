@@ -34,12 +34,12 @@ export function FocusTimer() {
 
   return (
     <section className="focusTimer" aria-label={t('focusTimer')}>
-      <div className="timerModes">{(['focus', 'shortBreak', 'longBreak'] as const).map((value) => <button type="button" key={value} className={mode === value ? 'active' : ''} onClick={() => selectMode(value)}>{t(value)}</button>)}</div>
+      <div className="timerModes liquidGlassSurface liquidGlassSurface--control">{(['focus', 'shortBreak', 'longBreak'] as const).map((value) => <button type="button" key={value} className={mode === value ? 'active' : ''} onClick={() => selectMode(value)}>{t(value)}</button>)}</div>
       <time className="timerValue" dateTime={`PT${remaining}S`}>{minutes}:{seconds}</time>
       <div className="timerControls">
-        <button type="button" className="roundControl" onClick={() => setRunning((value) => !value)} aria-label={running ? t('pause') : t('start')}>{running ? 'Ⅱ' : '▶'}</button>
-        <button type="button" className="roundControl" onClick={reset} aria-label={t('reset')}>↻</button>
-        <span className={`focusState ${running ? 'active' : ''}`}><i />{t('focus')}</span>
+        <button type="button" className="roundControl liquidGlassSurface liquidGlassSurface--control" onClick={() => setRunning((value) => !value)} aria-label={running ? t('pause') : t('start')}><span>{running ? 'Ⅱ' : '▶'}</span></button>
+        <button type="button" className="roundControl liquidGlassSurface liquidGlassSurface--control" onClick={reset} aria-label={t('reset')}><span>↻</span></button>
+        <span className={`focusState liquidGlassSurface liquidGlassSurface--control ${running ? 'active' : ''}`}><i /><span>{t('focus')}</span></span>
       </div>
     </section>
   );
