@@ -21,7 +21,7 @@ export function QuickNote() {
   useEffect(() => { localStorage.setItem(NOTE_STORAGE_KEY, note); }, [note]);
 
   return (
-    <section className="quickNote">
+    <section className="quickNote liquidGlassSurface">
       <label htmlFor="quick-note">{t('quickNote')}</label>
       <textarea id="quick-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder={t('quickNotePlaceholder')} maxLength={2_000} />
     </section>
