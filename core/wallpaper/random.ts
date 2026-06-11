@@ -2,9 +2,10 @@ import { fetchWallhavenRandom } from './wallhaven';
 import type { WallpaperRefreshInterval } from '../domain/types';
 
 export const RANDOM_WALLPAPER_ASSET_KEY = 'wallpaper/random-current';
+export const RANDOM_WALLPAPER_NEXT_ASSET_KEY = 'wallpaper/random-next';
 export const RANDOM_WALLPAPER_DISPLAY_PORT = 'isu:wallpaper:random-display';
 
-export type RandomWallpaperDisplayMessage = { type: 'ready' };
+export type RandomWallpaperDisplayMessage = { type: 'ready' | 'visible' };
 
 export type RandomWallpaperState = {
   imageUrl: string;
@@ -13,6 +14,12 @@ export type RandomWallpaperState = {
   interval: WallpaperRefreshInterval;
   updatedAt: string;
   nextRefreshAt: string;
+};
+
+/** A downloaded successor is local-only until it becomes the displayed image. */
+export type PreparedRandomWallpaperState = Pick<RandomWallpaperState, 'imageUrl' | 'sourceUrl' | 'wallpaperId' | 'interval'> & {
+  preparedAt: string;
+  currentWallpaperId: string;
 };
 
 const INTERVAL_MS: Record<WallpaperRefreshInterval, number> = {
@@ -37,7 +44,7 @@ export function shouldDeferRandomWallpaperRefresh(
 }
 
 export function isRandomWallpaperDisplayReadyMessage(value: unknown): value is RandomWallpaperDisplayMessage {
-  return Boolean(value) && typeof value === 'object' && (value as { type?: unknown }).type === 'ready';
+  return Boolean(value) && typeof value === 'object' && ((value as { type?: unknown }).type === 'ready' || (value as { type?: unknown }).type === 'visible');
 }
 
 export async function chooseRandomWallhaven(previousId?: string): Promise<Pick<RandomWallpaperState, 'imageUrl' | 'sourceUrl' | 'wallpaperId'>> {
@@ -62,6 +69,15 @@ export function nextRandomWallpaperState(
   };
 }
 
+export function prepareRandomWallpaperState(
+  wallpaper: Pick<RandomWallpaperState, 'imageUrl' | 'sourceUrl' | 'wallpaperId'>,
+  currentWallpaperId: string,
+  interval: WallpaperRefreshInterval,
+  now = new Date(),
+): PreparedRandomWallpaperState {
+  return { ...wallpaper, currentWallpaperId, interval, preparedAt: now.toISOString() };
+}
+
 export function rescheduleRandomWallpaper(state: RandomWallpaperState, interval: WallpaperRefreshInterval, now = new Date()): RandomWallpaperState {
   return { ...state, interval, nextRefreshAt: new Date(now.getTime() + wallpaperRefreshIntervalMs(interval)).toISOString() };
 }
@@ -73,6 +89,16 @@ export function isRandomWallpaperState(value: unknown): value is RandomWallpaper
     && typeof state.wallpaperId === 'string' && state.wallpaperId.length > 0
     && (state.interval === '1h' || state.interval === '5h' || state.interval === '1d')
     && [state.updatedAt, state.nextRefreshAt].every((date) => typeof date === 'string' && !Number.isNaN(Date.parse(date)));
+}
+
+export function isPreparedRandomWallpaperState(value: unknown): value is PreparedRandomWallpaperState {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as Partial<PreparedRandomWallpaperState>;
+  return [state.imageUrl, state.sourceUrl].every((url) => typeof url === 'string' && isWallhavenUrl(url))
+    && typeof state.wallpaperId === 'string' && state.wallpaperId.length > 0
+    && typeof state.currentWallpaperId === 'string' && state.currentWallpaperId.length > 0
+    && (state.interval === '1h' || state.interval === '5h' || state.interval === '1d')
+    && typeof state.preparedAt === 'string' && !Number.isNaN(Date.parse(state.preparedAt));
 }
 
 export async function downloadWallhavenImage(url: string): Promise<Blob> {
