@@ -17,7 +17,7 @@ export type WeatherForecast = {
 
 export function resolveTemperatureUnit(preference: TemperatureUnitPreference, languageTag: string): TemperatureUnit {
   if (preference === 'celsius' || preference === 'fahrenheit') return preference;
-  return languageTag.toLocaleLowerCase().startsWith('zh') ? 'celsius' : 'fahrenheit';
+  return /^(zh|ja|ko)(?:-|$)/i.test(languageTag) ? 'celsius' : 'fahrenheit';
 }
 
 export function buildWeatherForecastUrl(location: WeatherLocation, unit: TemperatureUnit): string {
