@@ -2,6 +2,7 @@ import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
 import { createDeviceIdentity, createInitialConfig } from '../domain/defaults';
 import { nextRevision } from '../domain/revision';
 import { normalizeShortcutUrl } from '../domain/url';
+import { shortcutIconAssetKey } from '../domain/shortcut-icons';
 import {
   DEFAULT_GROUP_ID,
   type AppConfig,
@@ -10,6 +11,7 @@ import {
   type OutboxEntry,
   type ProviderCursor,
   type Shortcut,
+  type ShortcutInput,
   type ShortcutGroup,
   type SyncCheckpoint,
   type SyncMetadata,
@@ -17,10 +19,11 @@ import {
   type Wallpaper,
 } from '../domain/types';
 import { getDatabase } from './database';
-import { migrateAppConfig } from '../domain/migration';
+import { legacyShortcutIconIds, migrateAppConfig } from '../domain/migration';
 import { compareBySortKey } from '../domain/sort';
 import {
   buildDesktopSnapshot,
+  desktopLayoutFingerprint,
   desktopItems,
   desktopPlacements,
   migrateDesktopPositions,
@@ -29,13 +32,17 @@ import {
   type DesktopCommit,
   type DesktopPlacement,
 } from '../domain/desktop';
-import { executeDesktopCommand, nearestDesktopVacancy } from '../layout/desktop-lifecycle';
+import { executePieceDesktopCommand, nearestPieceDesktopVacancy } from '../layout/piece-desktop-adapter';
+import type { FolderShortcutDesktopDropPlan } from '../layout/folder-shortcut-desktop-drop';
+import { applyDesktopPlacementsToPieces } from '../layout/piece-placement-projection';
 import { collisionRectFor, collisionRectsOverlap, type DesktopCollisionGeometry } from '../layout/desktop-collision';
-import { SYSTEM_WIDGET_IDS, WIDGET_SIZE_PRESETS, type SystemWidgetId, type WidgetPosition } from '../domain/widgets';
+import { resolveAddShortcutLayout, SYSTEM_WIDGET_IDS, WIDGET_SIZE_PRESETS, type ConfigurableWidgetId, type SystemWidgetId, type WidgetPosition } from '../domain/widgets';
 import { createDefaultPieces, isPiecePositionValid, pieceFingerprint, piecePositionForWidget, piecePositionsOverlap, searchPercentToPieceWidth, type Piece, type PiecePosition, type PieceSnapshot } from '../domain/pieces';
-import type { RandomWallpaperState } from '../wallpaper/random';
-import { isRandomWallpaperState } from '../wallpaper/random';
-import type { AppUnitOfWork, AssetRepository, BackupRepository, ConfigRepository, SyncRepository } from './ports';
+import type { PreparedRandomWallpaperState, RandomWallpaperState } from '../wallpaper/random';
+import { isPreparedRandomWallpaperState, isRandomWallpaperState, nextRandomWallpaperState, RANDOM_WALLPAPER_ASSET_KEY, RANDOM_WALLPAPER_NEXT_ASSET_KEY } from '../wallpaper/random';
+import { BING_DAILY_ASSET_KEY, DEFAULT_BING_WALLPAPER_QUALITY, normalizeBingDailyState, type BingDailyState } from '../wallpaper/bing';
+import type { SyncReplica } from '../sync/replica';
+import type { AppStateSnapshot, AppUnitOfWork, AssetRepository, BackupRepository, ConfigRepository, SyncRepository } from './ports';
 
 type Listener = () => void;
 
@@ -66,6 +73,8 @@ function outboxEntry(
 export class IndexedDbUnitOfWork implements AppUnitOfWork {
   private readonly listeners = new Set<Listener>();
   private readonly channel?: BroadcastChannel;
+  /** Serializes compound shortcut moves so one full-config transaction cannot overwrite another. */
+  private shortcutMoveTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly faultInjector?: (operation: string, transaction: { abort(): void }) => void) {
     if (typeof BroadcastChannel !== 'undefined' && globalThis.location?.protocol === 'chrome-extension:') {
@@ -76,7 +85,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
 
   async initialize(): Promise<AppConfig> {
     const database = await getDatabase();
-    const transaction = database.transaction(['config', 'metadata', 'outbox', 'settings', 'assets', 'cursors', 'checkpoints', 'pieces'], 'readwrite');
+    const transaction = database.transaction(['config', 'metadata', 'outbox', 'settings', 'assets', 'cursors', 'checkpoints', 'pieces', 'syncReplicas'], 'readwrite');
     let identity = await transaction.objectStore('settings').get('deviceIdentity') as DeviceIdentity | undefined;
     let config = await transaction.objectStore('config').get('current');
     const existingPieces = await transaction.objectStore('pieces').getAll();
@@ -93,7 +102,8 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
         await transaction.objectStore('assets').clear();
         await transaction.objectStore('cursors').clear();
         await transaction.objectStore('checkpoints').clear();
-        for (const key of ['searchHistory', 'searchHistorySource', 'appLanguage', 'weatherPreferences', 'weatherCache', 'randomWallpaper', 'syncMode'] as const) {
+        await transaction.objectStore('syncReplicas').clear();
+        for (const key of ['searchHistory', 'searchHistorySource', 'appLanguage', 'weatherPreferences', 'weatherCache', 'randomWallpaper', 'randomWallpaperNext', 'bingDailyWallpaper', 'bingWallpaperQuality', 'syncMode'] as const) {
           await transaction.objectStore('settings').delete(key);
         }
         identity.epoch += 1;
@@ -107,6 +117,8 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
         await transaction.objectStore('pieces').put(piece);
       }
     } else {
+      const removedRemoteIconIds = legacyShortcutIconIds(config);
+      const needsWallpaperStartupFadeMigration = !hasWallpaperStartupFade(config);
       const previousWidgetLayout = JSON.stringify(config.appearance.widgetLayout.value);
       config = migrateAppConfig(config);
       const widgetDefaultsChanged = previousWidgetLayout !== JSON.stringify(config.appearance.widgetLayout.value);
@@ -114,6 +126,12 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
       config = migration.config;
       for (const id of migration.changedShortcuts) {
         const shortcut = config.shortcuts.find((item) => item.id === id)!;
+        shortcut.revision = nextRevision(identity, shortcut.revision);
+        await transaction.objectStore('outbox').put(outboxEntry('shortcut', id, shortcut.revision, 'upsert'));
+      }
+      for (const id of removedRemoteIconIds) {
+        const shortcut = config.shortcuts.find((item) => item.id === id);
+        if (!shortcut) continue;
         shortcut.revision = nextRevision(identity, shortcut.revision);
         await transaction.objectStore('outbox').put(outboxEntry('shortcut', id, shortcut.revision, 'upsert'));
       }
@@ -126,8 +144,18 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
         config.appearance.widgetLayout.revision = nextRevision(identity, config.appearance.widgetLayout.revision);
         await transaction.objectStore('outbox').put(outboxEntry('appearance', 'widgetLayout', config.appearance.widgetLayout.revision, 'upsert'));
       }
+      if (needsWallpaperStartupFadeMigration) {
+        config.appearance.wallpaperStartupFadeMs.revision = nextRevision(identity, config.appearance.wallpaperStartupFadeMs.revision);
+        await transaction.objectStore('outbox').put(outboxEntry('appearance', 'wallpaperStartupFadeMs', config.appearance.wallpaperStartupFadeMs.revision, 'upsert'));
+      }
+      if (removedRemoteIconIds.length || needsWallpaperStartupFadeMigration) config.updatedAt = new Date().toISOString();
       await transaction.objectStore('config').put(config, 'current');
     }
+    await ensureBusinessPieces(transaction.objectStore('pieces'), config);
+    for (const entry of await reconcileDesktopShortcutContainers(transaction.objectStore('pieces'), config, identity)) {
+      await transaction.objectStore('outbox').put(entry);
+    }
+    await transaction.objectStore('config').put(config, 'current');
     for (const entry of await ensureSystemPieces(transaction.objectStore('pieces'), config, identity)) {
       await transaction.objectStore('outbox').put(entry);
     }
@@ -153,6 +181,16 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
 
   async getPieces(): Promise<Piece[]> {
     return clone(await (await getDatabase()).getAll('pieces'));
+  }
+
+  async getSyncReplica(providerId: string): Promise<SyncReplica | undefined> {
+    const replica = await (await getDatabase()).get('syncReplicas', providerId);
+    return replica ? clone(replica) : undefined;
+  }
+
+  async putSyncReplica(replica: SyncReplica): Promise<void> {
+    await (await getDatabase()).put('syncReplicas', clone(replica));
+    this.emit();
   }
 
   async putPieces(pieces: Piece[]): Promise<void> {
@@ -284,6 +322,16 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     return config ? clone(config) : this.initialize();
   }
 
+  async getAppStateSnapshot(): Promise<AppStateSnapshot> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['config', 'pieces', 'settings'], 'readonly');
+    const config = await this.requireConfig(transaction.objectStore('config'));
+    const pieces = await transaction.objectStore('pieces').getAll();
+    const syncMode = await transaction.objectStore('settings').get('syncMode') as SyncMode | undefined;
+    await transaction.done;
+    return { config: clone(config), pieces: clone(pieces), syncMode: syncMode ?? 'chrome' };
+  }
+
   async getMetadata(): Promise<SyncMetadata> {
     return clone(await (await getDatabase()).get('metadata', 'current') ?? { tombstones: [] });
   }
@@ -301,8 +349,8 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const revision = nextRevision(identity);
     const last = [...config.groups].sort(compareBySortKey).at(-1);
     const snapshot = buildDesktopSnapshot(config);
-    const addPosition = desktopItems(snapshot).find((item) => item.kind === 'add-shortcut')!.position;
-    const desktopPosition = position ?? nearestDesktopVacancy(snapshot, addPosition);
+    const addPosition = shortcutInsertionPosition(config, snapshot);
+    const desktopPosition = position ?? nearestPieceDesktopVacancy(snapshot, addPosition);
     const group: ShortcutGroup = {
       id: crypto.randomUUID(),
       name: normalizedName,
@@ -317,11 +365,11 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
       position: widgetPositionToPiece(desktopPosition), revision,
     };
     await transaction.objectStore('pieces').put(folderPiece);
-    const placed = executeDesktopCommand(buildDesktopSnapshot(config), { type: 'move', key: `folder:${group.id}`, target: desktopPosition });
+    const placed = executePieceDesktopCommand(buildDesktopSnapshot(config), { type: 'move', key: `folder:${group.id}`, target: desktopPosition });
     const placements = desktopPlacements(placed.items);
     const placementOutbox = applyPlacementData(config, placements, identity);
     const currentPieces = await transaction.objectStore('pieces').getAll();
-    const nextPieces = applyPlacementsToPieces(currentPieces, placements);
+    const nextPieces = applyDesktopPlacementsToPieces(currentPieces, placements);
     const pieceOutboxIds = new Set<string>();
     config.updatedAt = new Date().toISOString();
     await transaction.objectStore('config').put(config, 'current');
@@ -386,7 +434,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     this.emit();
   }
 
-  async addShortcut(input: Pick<Shortcut, 'name' | 'url' | 'groupId'> & { position?: WidgetPosition }): Promise<Shortcut> {
+  async addShortcut(input: ShortcutInput & { position?: WidgetPosition }): Promise<Shortcut> {
     const normalizedName = validateName(input.name, 120);
     const database = await getDatabase();
     const transaction = database.transaction(['config', 'outbox', 'settings', 'pieces'], 'readwrite');
@@ -397,7 +445,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const revision = nextRevision(identity);
     const snapshot = buildDesktopSnapshot(config);
     const desktopPosition = input.groupId === DEFAULT_GROUP_ID
-      ? input.position ?? desktopItems(snapshot).find((item) => item.kind === 'add-shortcut')!.position
+      ? input.position ?? shortcutInsertionPosition(config, snapshot)
       : undefined;
     const shortcut: Shortcut = {
       id: crypto.randomUUID(),
@@ -417,14 +465,14 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     await transaction.objectStore('pieces').put(shortcutPiece);
     let placementOutbox: OutboxEntry[] = [];
     if (desktopPosition) {
-      const placed = executeDesktopCommand(snapshot, { type: 'insert', node: {
+      const placed = executePieceDesktopCommand(snapshot, { type: 'insert', node: {
         kind: 'shortcut', key: `shortcut:${shortcut.id}`, entity: shortcut, movable: true, revision,
         container: { kind: 'desktop' }, position: desktopPosition,
       } });
       const placements = desktopPlacements(placed.items);
       placementOutbox = applyPlacementData(config, placements, identity);
       const currentPieces = await transaction.objectStore('pieces').getAll();
-      const nextPieces = applyPlacementsToPieces(currentPieces, placements);
+      const nextPieces = applyDesktopPlacementsToPieces(currentPieces, placements);
       const pieceOutboxIds = new Set<string>();
       for (const piece of nextPieces) {
         const previous = currentPieces.find((item) => item.id === piece.id);
@@ -447,23 +495,26 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     return clone(shortcut);
   }
 
-  async updateShortcut(id: string, input: Pick<Shortcut, 'name' | 'url' | 'groupId'>): Promise<void> {
+  async updateShortcut(id: string, input: ShortcutInput): Promise<void> {
     const database = await getDatabase();
-    const transaction = database.transaction(['config', 'outbox', 'settings', 'pieces'], 'readwrite');
+    const transaction = database.transaction(['config', 'outbox', 'settings', 'pieces', 'assets'], 'readwrite');
     const config = await this.requireConfig(transaction.objectStore('config'));
     const identity = await this.requireIdentity(transaction.objectStore('settings'));
     const shortcut = config.shortcuts.find((item) => item.id === id);
     if (!shortcut) throw new Error('SHORTCUT_NOT_FOUND');
     if (!config.groups.some((group) => group.id === input.groupId)) throw new Error('GROUP_NOT_FOUND');
     shortcut.name = validateName(input.name, 120);
-    shortcut.url = normalizeShortcutUrl(input.url);
+    const nextUrl = normalizeShortcutUrl(input.url);
+    const urlChanged = shortcut.url !== nextUrl;
+    shortcut.url = nextUrl;
+    if (urlChanged) await transaction.objectStore('assets').delete(shortcutIconAssetKey(id));
     const previousGroupId = shortcut.groupId;
     shortcut.groupId = input.groupId;
     if (input.groupId !== DEFAULT_GROUP_ID) delete shortcut.position;
     if (previousGroupId !== input.groupId && input.groupId === DEFAULT_GROUP_ID) {
       const before = buildDesktopSnapshot({ ...config, shortcuts: config.shortcuts.map((item) => item.id === id ? { ...item, groupId: previousGroupId } : item) });
-      shortcut.position = desktopItems(before).find((item) => item.kind === 'add-shortcut')!.position;
-      const placed = executeDesktopCommand(buildDesktopSnapshot(config), { type: 'move', key: `shortcut:${id}`, target: shortcut.position });
+      shortcut.position = shortcutInsertionPosition(config, before);
+      const placed = executePieceDesktopCommand(buildDesktopSnapshot(config), { type: 'move', key: `shortcut:${id}`, target: shortcut.position });
       for (const entry of applyPlacementData(config, desktopPlacements(placed.items), identity)) await transaction.objectStore('outbox').put(entry);
     }
     shortcut.revision = nextRevision(identity, shortcut.revision);
@@ -484,7 +535,17 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     this.emit();
   }
 
-  async moveShortcut(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: DesktopCommit): Promise<void> {
+  async moveShortcut(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: DesktopCommit | FolderShortcutDesktopDropPlan): Promise<AppStateSnapshot> {
+    return this.enqueueShortcutMove(() => this.moveShortcutAtomically(id, groupId, beforeId, afterId, position, commit));
+  }
+
+  private enqueueShortcutMove<T>(operation: () => Promise<T>): Promise<T> {
+    const queued = this.shortcutMoveTail.then(operation, operation);
+    this.shortcutMoveTail = queued.then(() => undefined, () => undefined);
+    return queued;
+  }
+
+  private async moveShortcutAtomically(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: DesktopCommit | FolderShortcutDesktopDropPlan): Promise<AppStateSnapshot> {
     const database = await getDatabase();
     const transaction = database.transaction(['config', 'outbox', 'settings', 'pieces'], 'readwrite');
     const config = await this.requireConfig(transaction.objectStore('config'));
@@ -497,13 +558,15 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const before = beforeId ? config.shortcuts.find((item) => item.id === beforeId)?.sortKey ?? null : append ? destination.at(-1)?.sortKey ?? null : null;
     const after = afterId ? config.shortcuts.find((item) => item.id === afterId)?.sortKey ?? null : null;
     const beforeSnapshot = buildDesktopSnapshot(config);
-    if (commit && commit.fingerprint !== beforeSnapshot.fingerprint) throw new Error('DESKTOP_STALE');
+    if (commit && !isFolderShortcutDesktopDropPlan(commit) && commit.fingerprint !== beforeSnapshot.fingerprint) throw new Error('DESKTOP_STALE');
     const changedContainer = shortcut.groupId !== groupId;
     if (groupId === DEFAULT_GROUP_ID && (changedContainer || position)) {
-      shortcut.position = position ?? desktopItems(beforeSnapshot).find((item) => item.kind === 'add-shortcut')!.position;
+      shortcut.position = position ?? shortcutInsertionPosition(config, beforeSnapshot);
     } else if (groupId !== DEFAULT_GROUP_ID) delete shortcut.position;
     shortcut.groupId = groupId;
-    shortcut.sortKey = generateKeyBetween(before, after);
+    const generatedSortKey = generateKeyBetween(before, after);
+    const folderDropPlan = isFolderShortcutDesktopDropPlan(commit) && commit.sortKey === generatedSortKey ? commit : undefined;
+    shortcut.sortKey = folderDropPlan?.sortKey ?? generatedSortKey;
     shortcut.revision = nextRevision(identity, shortcut.revision);
     const piece = await transaction.objectStore('pieces').get(`piece:shortcut:${id}`);
     if (piece) {
@@ -516,9 +579,27 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     }
     if (changedContainer && groupId === DEFAULT_GROUP_ID) {
       const postSnapshot = buildDesktopSnapshot(config);
-      const placements = commit?.placements ?? desktopPlacements(executeDesktopCommand(postSnapshot, { type: 'move', key: `shortcut:${id}`, target: shortcut.position! }).items);
-      validateCommitAgainstSnapshot(postSnapshot, placements, commit?.collisionGeometry);
+      const trustedFolderDropPlan = folderDropPlan?.postTransitionLayoutFingerprint === desktopLayoutFingerprint(postSnapshot.nodes)
+        ? folderDropPlan
+        : undefined;
+      const placements = trustedFolderDropPlan?.placements
+        ?? (!isFolderShortcutDesktopDropPlan(commit) ? commit?.placements : undefined)
+        ?? desktopPlacements(executePieceDesktopCommand(postSnapshot, { type: 'move', key: `shortcut:${id}`, target: shortcut.position! }).items);
+      validateCommitAgainstSnapshot(postSnapshot, placements, isFolderShortcutDesktopDropPlan(commit) ? undefined : commit?.collisionGeometry);
       for (const entry of applyPlacementData(config, placements, identity)) await transaction.objectStore('outbox').put(entry);
+      // A folder member can displace more than its own desktop slot. Keep the
+      // Piece layout truth in lockstep with the placement projection just as
+      // shortcut and folder creation already do.
+      const currentPieces = await transaction.objectStore('pieces').getAll();
+      const nextPieces = applyDesktopPlacementsToPieces(currentPieces, placements);
+      validatePieceSet(nextPieces);
+      for (const nextPiece of nextPieces) {
+        const previousPiece = currentPieces.find((item) => item.id === nextPiece.id);
+        if (!previousPiece || JSON.stringify(previousPiece.position) === JSON.stringify(nextPiece.position)) continue;
+        nextPiece.revision = nextRevision(identity, previousPiece.revision ?? nextPiece.revision);
+        await transaction.objectStore('pieces').put(nextPiece);
+        await transaction.objectStore('outbox').put(outboxEntry('piece', nextPiece.id, nextPiece.revision, 'upsert'));
+      }
     }
     if (shortcut.sortKey.length > 32) {
       const siblings = config.shortcuts.filter((item) => item.groupId === groupId).sort(compareBySortKey);
@@ -533,8 +614,11 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     await transaction.objectStore('config').put(config, 'current');
     await transaction.objectStore('settings').put(identity, 'deviceIdentity');
     await transaction.objectStore('outbox').put(outboxEntry('shortcut', id, shortcut.revision, 'upsert'));
+    const finalPieces = await transaction.objectStore('pieces').getAll();
+    const syncMode = await transaction.objectStore('settings').get('syncMode') as SyncMode | undefined;
     await transaction.done;
     this.emit();
+    return { config: clone(config), pieces: clone(finalPieces), syncMode: syncMode ?? 'chrome' };
   }
 
   async moveGroup(id: string, beforeId?: string, afterId?: string): Promise<void> {
@@ -567,7 +651,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
 
   async deleteShortcut(id: string): Promise<void> {
     const database = await getDatabase();
-    const transaction = database.transaction(['config', 'metadata', 'outbox', 'settings', 'pieces'], 'readwrite');
+    const transaction = database.transaction(['config', 'metadata', 'outbox', 'settings', 'pieces', 'assets'], 'readwrite');
     const config = await this.requireConfig(transaction.objectStore('config'));
     const metadata = await transaction.objectStore('metadata').get('current') ?? { tombstones: [] };
     const identity = await this.requireIdentity(transaction.objectStore('settings'));
@@ -576,6 +660,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const revision = nextRevision(identity, shortcut.revision);
     config.shortcuts = config.shortcuts.filter((item) => item.id !== id);
     await transaction.objectStore('pieces').delete(`piece:shortcut:${id}`);
+    await transaction.objectStore('assets').delete(shortcutIconAssetKey(id));
     metadata.tombstones = metadata.tombstones.filter((item) => !(item.entityType === 'shortcut' && item.entityId === id));
     metadata.tombstones.push({ entityType: 'shortcut', entityId: id, revision });
     config.updatedAt = new Date().toISOString();
@@ -605,7 +690,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     this.emit();
   }
 
-  async setWidgetEnabled(id: SystemWidgetId, enabled: boolean): Promise<void> {
+  async setWidgetEnabled(id: ConfigurableWidgetId, enabled: boolean): Promise<void> {
     const database = await getDatabase();
     const transaction = database.transaction(['config', 'outbox', 'settings', 'pieces'], 'readwrite');
     const config = await this.requireConfig(transaction.objectStore('config'));
@@ -613,16 +698,19 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const widget = config.appearance.widgetLayout.value.find((item) => item.id === id);
     if (!widget) throw new Error('WIDGET_NOT_FOUND');
     if (widget.enabled === enabled) { await transaction.done; return; }
-    widget.enabled = enabled;
-    const pieceEntries = await syncSystemPieces(transaction.objectStore('pieces'), config, identity);
-    for (const entry of pieceEntries) await transaction.objectStore('outbox').put(entry);
     const previousRevision = config.appearance.widgetLayout.revision;
     if (enabled) {
+      // Compute from the pre-enable snapshot so this hidden item cannot block
+      // itself. Enabling must never displace existing desktop items.
       const snapshot = buildDesktopSnapshot(config);
-      const node = desktopItems(snapshot).find((item) => item.key === `widget:${id}`)!;
-      const placed = executeDesktopCommand(snapshot, { type: 'move', key: node.key, target: node.position });
-      for (const entry of applyPlacementData(config, desktopPlacements(placed.items), identity)) await transaction.objectStore('outbox').put(entry);
+      const key = id === 'addShortcut' ? 'add-shortcut' : `widget:${id}`;
+      const node = snapshot.nodes.find((item) => item.key === key);
+      if (!node?.position) throw new Error('WIDGET_POSITION_NOT_FOUND');
+      widget.position = nearestPieceDesktopVacancy(snapshot, node.position, node.position);
     }
+    widget.enabled = enabled;
+    const pieceEntries = await syncWidgetPieces(transaction.objectStore('pieces'), config, identity);
+    for (const entry of pieceEntries) await transaction.objectStore('outbox').put(entry);
     if (config.appearance.widgetLayout.revision === previousRevision) {
       config.appearance.widgetLayout.revision = nextRevision(identity, previousRevision);
       await transaction.objectStore('outbox').put(outboxEntry('appearance', 'widgetLayout', config.appearance.widgetLayout.revision, 'upsert'));
@@ -642,15 +730,15 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const current = config.appearance[key];
     const revision = nextRevision(identity, current.revision);
     config.appearance[key] = { value, revision } as AppConfig['appearance'][K];
-    const pieceEntries = await syncSystemPieces(transaction.objectStore('pieces'), config, identity);
+    const pieceEntries = await syncWidgetPieces(transaction.objectStore('pieces'), config, identity);
     for (const entry of pieceEntries) await transaction.objectStore('outbox').put(entry);
     const desktopEntries: OutboxEntry[] = [];
     if (key === 'search') {
       const snapshot = buildDesktopSnapshot(config);
       const search = desktopItems(snapshot).find((item) => item.kind === 'system-widget' && item.id === 'search');
-      if (search) desktopEntries.push(...applyPlacementData(config, desktopPlacements(executeDesktopCommand(snapshot, { type: 'move', key: search.key, target: search.position }).items), identity));
+      if (search) desktopEntries.push(...applyPlacementData(config, desktopPlacements(executePieceDesktopCommand(snapshot, { type: 'move', key: search.key, target: search.position }).items), identity));
     } else if (key === 'widgetLayout') {
-      desktopEntries.push(...applyPlacementData(config, desktopPlacements(executeDesktopCommand(buildDesktopSnapshot(config), { type: 'repair' }).items), identity));
+      desktopEntries.push(...applyPlacementData(config, desktopPlacements(executePieceDesktopCommand(buildDesktopSnapshot(config), { type: 'repair' }).items), identity));
     }
     config.updatedAt = new Date().toISOString();
     await transaction.objectStore('config').put(config, 'current');
@@ -699,7 +787,62 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const database = await getDatabase();
     const transaction = database.transaction(['settings', 'assets'], 'readwrite');
     await transaction.objectStore('settings').put(clone(state), 'randomWallpaper');
-    await transaction.objectStore('assets').put({ key: 'wallpaper/random-current', blob, updatedAt: state.updatedAt, sourceUrl: state.imageUrl });
+    await transaction.objectStore('assets').put({ key: RANDOM_WALLPAPER_ASSET_KEY, blob, updatedAt: state.updatedAt, sourceUrl: state.imageUrl });
+    await transaction.objectStore('settings').delete('randomWallpaperNext');
+    await transaction.objectStore('assets').delete(RANDOM_WALLPAPER_NEXT_ASSET_KEY);
+    await transaction.done;
+    this.emit();
+  }
+
+  async getPreparedRandomWallpaperState(): Promise<PreparedRandomWallpaperState | undefined> {
+    const value = await (await getDatabase()).get('settings', 'randomWallpaperNext');
+    return isPreparedRandomWallpaperState(value) ? clone(value) : undefined;
+  }
+
+  async savePreparedRandomWallpaperState(state: PreparedRandomWallpaperState, blob: Blob): Promise<void> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['settings', 'assets'], 'readwrite');
+    await transaction.objectStore('settings').put(clone(state), 'randomWallpaperNext');
+    await transaction.objectStore('assets').put({ key: RANDOM_WALLPAPER_NEXT_ASSET_KEY, blob, updatedAt: state.preparedAt, sourceUrl: state.imageUrl });
+    await transaction.done;
+    this.emit();
+  }
+
+  async promotePreparedRandomWallpaperState(now = new Date()): Promise<RandomWallpaperState | undefined> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['settings', 'assets'], 'readwrite');
+    const current = await transaction.objectStore('settings').get('randomWallpaper');
+    const prepared = await transaction.objectStore('settings').get('randomWallpaperNext');
+    const asset = await transaction.objectStore('assets').get(RANDOM_WALLPAPER_NEXT_ASSET_KEY);
+    if (!isRandomWallpaperState(current) || !isPreparedRandomWallpaperState(prepared) || prepared.currentWallpaperId !== current.wallpaperId || !asset) {
+      await transaction.done;
+      return undefined;
+    }
+    const next = nextRandomWallpaperState(prepared, current.interval, now);
+    await transaction.objectStore('settings').put(clone(next), 'randomWallpaper');
+    await transaction.objectStore('assets').put({ key: RANDOM_WALLPAPER_ASSET_KEY, blob: asset.blob, updatedAt: next.updatedAt, sourceUrl: next.imageUrl });
+    await transaction.objectStore('settings').delete('randomWallpaperNext');
+    await transaction.objectStore('assets').delete(RANDOM_WALLPAPER_NEXT_ASSET_KEY);
+    await transaction.done;
+    this.emit();
+    return next;
+  }
+
+  async updateRandomWallpaperState(state: RandomWallpaperState): Promise<void> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['settings', 'assets'], 'readwrite');
+    await transaction.objectStore('settings').put(clone(state), 'randomWallpaper');
+    await transaction.objectStore('settings').delete('randomWallpaperNext');
+    await transaction.objectStore('assets').delete(RANDOM_WALLPAPER_NEXT_ASSET_KEY);
+    await transaction.done;
+    this.emit();
+  }
+
+  async clearPreparedRandomWallpaperState(): Promise<void> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['settings', 'assets'], 'readwrite');
+    await transaction.objectStore('settings').delete('randomWallpaperNext');
+    await transaction.objectStore('assets').delete(RANDOM_WALLPAPER_NEXT_ASSET_KEY);
     await transaction.done;
     this.emit();
   }
@@ -708,8 +851,55 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const database = await getDatabase();
     const transaction = database.transaction(['settings', 'assets'], 'readwrite');
     await transaction.objectStore('settings').delete('randomWallpaper');
-    await transaction.objectStore('assets').delete('wallpaper/random-current');
+    await transaction.objectStore('settings').delete('randomWallpaperNext');
+    await transaction.objectStore('assets').delete(RANDOM_WALLPAPER_ASSET_KEY);
+    await transaction.objectStore('assets').delete(RANDOM_WALLPAPER_NEXT_ASSET_KEY);
     await transaction.done;
+    this.emit();
+  }
+
+  async getBingWallpaperQuality(): Promise<import('../domain/types').BingWallpaperQuality> {
+    const database = await getDatabase();
+    const value = await database.get('settings', 'bingWallpaperQuality');
+    if (isBingWallpaperQuality(value)) return value;
+    if (value !== undefined) {
+      await database.put('settings', DEFAULT_BING_WALLPAPER_QUALITY, 'bingWallpaperQuality');
+      this.emit();
+      return DEFAULT_BING_WALLPAPER_QUALITY;
+    }
+    const config = await database.get('config', 'current');
+    const inherited = config?.appearance.wallpaper.value;
+    const quality = inherited?.type === 'bing' || inherited?.type === 'bing-daily'
+      ? inherited.quality
+      : DEFAULT_BING_WALLPAPER_QUALITY;
+    await database.put('settings', quality, 'bingWallpaperQuality');
+    this.emit();
+    return quality;
+  }
+
+  async setBingWallpaperQuality(quality: import('../domain/types').BingWallpaperQuality): Promise<void> {
+    if (!isBingWallpaperQuality(quality)) throw new Error('BING_WALLPAPER_QUALITY_INVALID');
+    await (await getDatabase()).put('settings', quality, 'bingWallpaperQuality');
+    this.emit();
+  }
+
+  async getBingDailyState(): Promise<BingDailyState | undefined> {
+    const value = await (await getDatabase()).get('settings', 'bingDailyWallpaper');
+    const state = normalizeBingDailyState(value);
+    return state ? clone(state) : undefined;
+  }
+
+  async saveBingDailyState(state: BingDailyState, blob: Blob): Promise<void> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['settings', 'assets'], 'readwrite');
+    await transaction.objectStore('settings').put(clone(state), 'bingDailyWallpaper');
+    await transaction.objectStore('assets').put({ key: BING_DAILY_ASSET_KEY, blob, updatedAt: state.updatedAt, sourceUrl: state.imageUrl });
+    await transaction.done;
+    this.emit();
+  }
+
+  async updateBingDailyState(state: BingDailyState): Promise<void> {
+    await (await getDatabase()).put('settings', clone(state), 'bingDailyWallpaper');
     this.emit();
   }
 
@@ -731,8 +921,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
 
   async replaceFromImport(config: AppConfig, wallpaper?: Blob): Promise<void> {
     const database = await getDatabase();
-    const stores = wallpaper ? ['config', 'metadata', 'outbox', 'assets', 'settings'] as const : ['config', 'metadata', 'outbox', 'settings'] as const;
-    const transaction = database.transaction(stores, 'readwrite');
+    const transaction = database.transaction(['config', 'metadata', 'outbox', 'assets', 'settings'], 'readwrite');
     await transaction.objectStore('config').put(config, 'current');
     await transaction.objectStore('metadata').put({ tombstones: [] }, 'current');
     await transaction.objectStore('outbox').clear();
@@ -750,6 +939,8 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     ].filter((revision) => revision.deviceId === identity.deviceId);
     identity.counter = Math.max(identity.counter, ...revisions.map((revision) => revision.counter));
     await transaction.objectStore('settings').put(identity, 'deviceIdentity');
+    await transaction.objectStore('settings').delete('randomWallpaperNext');
+    await transaction.objectStore('assets').delete(RANDOM_WALLPAPER_NEXT_ASSET_KEY);
     if (wallpaper) {
       const asset: AssetRecord = { key: 'wallpaper/upload', blob: wallpaper, updatedAt: new Date().toISOString() };
       await transaction.objectStore('assets').put(asset);
@@ -763,10 +954,16 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     metadata: SyncMetadata,
     identity: DeviceIdentity,
     cursor: ProviderCursor,
-    options?: { pendingRevision?: OutboxEntry['revision']; discardOutbox?: boolean; pieces?: Piece[] },
+    options?: {
+      pendingRevision?: OutboxEntry['revision'];
+      discardOutbox?: boolean;
+      pieces?: Piece[];
+      replica?: SyncReplica;
+      confirmedOutboxIds?: string[];
+    },
   ): Promise<void> {
     const database = await getDatabase();
-    const transaction = database.transaction(['config', 'metadata', 'settings', 'cursors', 'outbox', 'pieces'], 'readwrite');
+    const transaction = database.transaction(['config', 'metadata', 'settings', 'cursors', 'outbox', 'pieces', 'syncReplicas'], 'readwrite');
     const migration = migrateDesktopPositions(config);
     const normalized = migration.config;
     for (const id of migration.changedShortcuts) {
@@ -790,7 +987,11 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     await transaction.objectStore('metadata').put(metadata, 'current');
     await transaction.objectStore('settings').put(identity, 'deviceIdentity');
     await transaction.objectStore('cursors').put(cursor);
+    if (options?.replica) await transaction.objectStore('syncReplicas').put(clone(options.replica));
     if (options?.discardOutbox) await transaction.objectStore('outbox').clear();
+    if (options?.confirmedOutboxIds?.length) {
+      for (const opId of options.confirmedOutboxIds) await transaction.objectStore('outbox').delete(opId);
+    }
     for (const id of migration.changedShortcuts) {
       const shortcut = normalized.shortcuts.find((item) => item.id === id)!;
       await transaction.objectStore('outbox').put(outboxEntry('shortcut', id, shortcut.revision, 'upsert'));
@@ -813,6 +1014,16 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     await transaction.objectStore('metadata').put(metadata, 'current');
     await transaction.objectStore('settings').put(identity, 'deviceIdentity');
     await transaction.objectStore('cursors').put(cursor);
+    await transaction.done;
+    this.emit();
+  }
+
+  async confirmSyncReplica(replica: SyncReplica, confirmedOutboxIds: string[], cursor?: ProviderCursor): Promise<void> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['syncReplicas', 'outbox', 'cursors'], 'readwrite');
+    await transaction.objectStore('syncReplicas').put(clone(replica));
+    if (cursor) await transaction.objectStore('cursors').put(cursor);
+    for (const opId of confirmedOutboxIds) await transaction.objectStore('outbox').delete(opId);
     await transaction.done;
     this.emit();
   }
@@ -842,7 +1053,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
       config.shortcuts.push(shortcut);
       await transaction.objectStore('outbox').put(outboxEntry('shortcut', shortcut.id, revision, 'upsert'));
     }
-    const repair = executeDesktopCommand(buildDesktopSnapshot(config), { type: 'repair' });
+    const repair = executePieceDesktopCommand(buildDesktopSnapshot(config), { type: 'repair' });
     for (const entry of applyPlacementData(config, desktopPlacements(repair.items), identity)) {
       await transaction.objectStore('outbox').put(entry);
     }
@@ -864,6 +1075,24 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
 
   async getAssetRecord(key: string): Promise<AssetRecord | undefined> {
     return (await getDatabase()).get('assets', key);
+  }
+
+  async putShortcutIcon(shortcutId: string, blob: Blob, sourceUrl: string): Promise<void> {
+    await (await getDatabase()).put('assets', { key: shortcutIconAssetKey(shortcutId), blob, updatedAt: new Date().toISOString(), sourceUrl });
+  }
+
+  async getShortcutIcon(shortcutId: string): Promise<Blob | undefined> {
+    return (await (await getDatabase()).get('assets', shortcutIconAssetKey(shortcutId)))?.blob;
+  }
+
+  async getShortcutIcons(shortcutIds: string[]): Promise<Map<string, Blob>> {
+    const database = await getDatabase();
+    const results = await Promise.all(shortcutIds.map(async (id) => [id, (await database.get('assets', shortcutIconAssetKey(id)))?.blob] as const));
+    return new Map(results.filter((entry): entry is readonly [string, Blob] => Boolean(entry[1])));
+  }
+
+  async clearShortcutIcon(shortcutId: string): Promise<void> {
+    await (await getDatabase()).delete('assets', shortcutIconAssetKey(shortcutId));
   }
 
   async getSyncMode(): Promise<SyncMode> {
@@ -905,6 +1134,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
       outbox: await this.getOutbox(),
       pieces: await this.getPieces(),
       cursor: await this.getCursor('chrome'),
+      replicas: clone(await (await getDatabase()).getAll('syncReplicas')),
     };
     await (await getDatabase()).put('checkpoints', checkpoint);
     const checkpoints = (await (await getDatabase()).getAll('checkpoints')).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
@@ -920,7 +1150,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     const checkpoint = await this.getLatestCheckpoint();
     if (!checkpoint) return false;
     const database = await getDatabase();
-    const transaction = database.transaction(['config', 'metadata', 'outbox', 'cursors', 'pieces'], 'readwrite');
+    const transaction = database.transaction(['config', 'metadata', 'outbox', 'cursors', 'pieces', 'syncReplicas'], 'readwrite');
     await transaction.objectStore('config').put(checkpoint.config, 'current');
     await transaction.objectStore('metadata').put(checkpoint.metadata, 'current');
     await transaction.objectStore('outbox').clear();
@@ -931,6 +1161,8 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
     }
     if (checkpoint.cursor) await transaction.objectStore('cursors').put(checkpoint.cursor);
     else await transaction.objectStore('cursors').delete('chrome');
+    await transaction.objectStore('syncReplicas').clear();
+    for (const replica of checkpoint.replicas ?? []) await transaction.objectStore('syncReplicas').put(replica);
     await transaction.done;
     this.emit();
     return true;
@@ -1051,21 +1283,8 @@ function piecePositionToWidget(position: PiecePosition): WidgetPosition {
   return { column: position.x + 24, row: position.y, width: position.width, height: position.height, gridVersion: 3 };
 }
 
-function applyPlacementsToPieces(pieces: Piece[], placements: DesktopPlacement[]): Piece[] {
-  const byKey = new Map(placements.map((placement) => [placementKey(placement), placement]));
-  return pieces.map((piece) => {
-    const key = piece.kind === 'system-widget'
-      ? `widget:${piece.payloadRef}`
-      : piece.kind === 'shortcut'
-        ? `shortcut:${piece.payloadRef}`
-        : piece.kind === 'folder'
-          ? `folder:${piece.payloadRef}`
-          : 'add-shortcut';
-    const placement = byKey.get(key);
-    if (!placement) return piece;
-    const nextPosition = widgetPositionToPiece(placement.position);
-    return JSON.stringify(piece.position) === JSON.stringify(nextPosition) ? piece : { ...piece, position: nextPosition };
-  });
+function isFolderShortcutDesktopDropPlan(commit: DesktopCommit | FolderShortcutDesktopDropPlan | undefined): commit is FolderShortcutDesktopDropPlan {
+  return Boolean(commit && 'kind' in commit && commit.kind === 'folder-shortcut-desktop-drop');
 }
 
 function validatePieceSet(pieces: Piece[]): void {
@@ -1076,10 +1295,10 @@ function validatePieceSet(pieces: Piece[]): void {
     ids.add(piece.id);
     if (piece.container.kind === 'desktop' && (!piece.position || !isPiecePositionValid(piece.position))) throw new Error('PIECE_POSITION_INVALID');
     if (piece.container.kind === 'folder' && piece.position) throw new Error('PIECE_FOLDER_POSITION_INVALID');
-    if (piece.container.kind === 'hidden' && piece.kind !== 'system-widget' && piece.position) throw new Error('PIECE_HIDDEN_POSITION_INVALID');
-    if (piece.container.kind === 'hidden' && piece.kind === 'system-widget' && piece.position && !isPiecePositionValid(piece.position)) throw new Error('PIECE_POSITION_INVALID');
+    if (piece.container.kind === 'hidden' && piece.kind !== 'system-widget' && piece.kind !== 'add-shortcut' && piece.position) throw new Error('PIECE_HIDDEN_POSITION_INVALID');
+    if (piece.container.kind === 'hidden' && (piece.kind === 'system-widget' || piece.kind === 'add-shortcut') && piece.position && !isPiecePositionValid(piece.position)) throw new Error('PIECE_POSITION_INVALID');
     if (piece.kind === 'add-shortcut' && piece.id !== 'piece:add-shortcut') throw new Error('ADD_PIECE_ID_INVALID');
-    if (piece.kind === 'add-shortcut' && piece.container.kind !== 'desktop') throw new Error('ADD_PIECE_CANNOT_BE_HIDDEN');
+    if (piece.kind === 'add-shortcut' && piece.container.kind === 'folder') throw new Error('ADD_PIECE_FOLDER_INVALID');
   }
   for (const [index, left] of desktop.entries()) {
     if (desktop.slice(index + 1).some((right) => piecePositionsOverlap(left.position!, right.position!))) throw new Error('PIECE_LAYOUT_OVERLAP');
@@ -1106,7 +1325,8 @@ function mirrorPiecePositions(config: AppConfig, pieces: Piece[]): void {
 type PieceStore = { getAll(): Promise<Piece[]>; put(value: Piece): Promise<unknown> };
 
 async function ensureSystemPieces(store: PieceStore, config: AppConfig, identity: DeviceIdentity): Promise<OutboxEntry[]> {
-  const existing = new Set((await store.getAll()).map((piece) => piece.id));
+  const existingPieces = await store.getAll();
+  const existing = new Set(existingPieces.map((piece) => piece.id));
   const entries: OutboxEntry[] = [];
   for (const widgetId of SYSTEM_WIDGET_IDS) {
     const id = `piece:widget:${widgetId}`;
@@ -1125,10 +1345,23 @@ async function ensureSystemPieces(store: PieceStore, config: AppConfig, identity
     await store.put(piece);
     entries.push(outboxEntry('piece', piece.id, piece.revision, 'upsert'));
   }
+  if (!existing.has('piece:add-shortcut')) {
+    const addShortcut = resolveAddShortcutLayout(config.appearance.widgetLayout.value);
+    const piece: Piece = {
+      id: 'piece:add-shortcut',
+      kind: 'add-shortcut',
+      payloadRef: 'add-shortcut',
+      container: addShortcut.enabled ? { kind: 'desktop' } : { kind: 'hidden' },
+      position: widgetPositionToPiece(addShortcut.position),
+      revision: nextRevision(identity, { counter: 0, deviceId: 'add-shortcut-default' }),
+    };
+    await store.put(piece);
+    entries.push(outboxEntry('piece', piece.id, piece.revision, 'upsert'));
+  }
   return entries;
 }
 
-async function syncSystemPieces(store: PieceStore, config: AppConfig, identity: DeviceIdentity): Promise<OutboxEntry[]> {
+async function syncWidgetPieces(store: PieceStore, config: AppConfig, identity: DeviceIdentity): Promise<OutboxEntry[]> {
   const pieces = await store.getAll();
   const entries: OutboxEntry[] = [];
   for (const piece of pieces.filter((item) => item.kind === 'system-widget')) {
@@ -1159,7 +1392,35 @@ async function syncSystemPieces(store: PieceStore, config: AppConfig, identity: 
     await store.put(piece);
     entries.push(outboxEntry('piece', piece.id, piece.revision, 'upsert'));
   }
+  const addPiece = pieces.find((piece) => piece.kind === 'add-shortcut');
+  const addShortcut = resolveAddShortcutLayout(config.appearance.widgetLayout.value);
+  if (addPiece) {
+    const container = addShortcut.enabled ? { kind: 'desktop' as const } : { kind: 'hidden' as const };
+    const position = widgetPositionToPiece(addShortcut.position);
+    if (JSON.stringify(addPiece.container) !== JSON.stringify(container) || JSON.stringify(addPiece.position) !== JSON.stringify(position)) {
+      addPiece.container = container;
+      addPiece.position = position;
+      addPiece.revision = nextRevision(identity, addPiece.revision);
+      await store.put(addPiece);
+      entries.push(outboxEntry('piece', addPiece.id, addPiece.revision, 'upsert'));
+    }
+  }
   return entries;
+}
+
+function shortcutInsertionPosition(config: AppConfig, snapshot: ReturnType<typeof buildDesktopSnapshot>): WidgetPosition {
+  return desktopItems(snapshot).find((item) => item.kind === 'add-shortcut')?.position
+    ?? resolveAddShortcutLayout(config.appearance.widgetLayout.value).position;
+}
+
+function isBingWallpaperQuality(value: unknown): value is import('../domain/types').BingWallpaperQuality {
+  return value === '1080p' || value === '1440p' || value === '4k';
+}
+
+function hasWallpaperStartupFade(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const appearance = (value as { appearance?: unknown }).appearance;
+  return Boolean(appearance && typeof appearance === 'object' && Object.hasOwn(appearance, 'wallpaperStartupFadeMs'));
 }
 
 async function ensureBusinessPieces(store: PieceStore, config: AppConfig): Promise<void> {
@@ -1176,6 +1437,32 @@ async function ensureBusinessPieces(store: PieceStore, config: AppConfig): Promi
     const desktop = shortcut.groupId === DEFAULT_GROUP_ID && shortcut.position;
     await store.put({ id, kind: 'shortcut', payloadRef: shortcut.id, container: desktop ? { kind: 'desktop' } : { kind: 'folder', folderPieceId: `piece:folder:${shortcut.groupId}` }, ...(desktop ? { position: widgetPositionToPiece(shortcut.position!) } : {}), revision: shortcut.revision });
   }
+}
+
+/**
+ * Repairs the only historical shortcut/container split that can render the
+ * same shortcut twice: configuration still says "folder" while Piece says
+ * "desktop". Piece is the desktop layout authority, so keep that placement.
+ */
+async function reconcileDesktopShortcutContainers(store: PieceStore, config: AppConfig, identity: DeviceIdentity): Promise<OutboxEntry[]> {
+  const pieces = await store.getAll();
+  const byShortcutId = new Map(pieces.filter((piece) => piece.kind === 'shortcut').map((piece) => [piece.payloadRef, piece]));
+  const entries: OutboxEntry[] = [];
+  let changed = false;
+  for (const shortcut of config.shortcuts) {
+    const piece = byShortcutId.get(shortcut.id);
+    if (!piece || shortcut.groupId === DEFAULT_GROUP_ID || piece.container.kind !== 'desktop' || !piece.position) continue;
+    shortcut.groupId = DEFAULT_GROUP_ID;
+    shortcut.position = piecePositionToWidget(piece.position);
+    shortcut.revision = nextRevision(identity, shortcut.revision);
+    piece.revision = shortcut.revision;
+    await store.put(piece);
+    entries.push(outboxEntry('shortcut', shortcut.id, shortcut.revision, 'upsert'));
+    entries.push(outboxEntry('piece', piece.id, piece.revision, 'upsert'));
+    changed = true;
+  }
+  if (changed) config.updatedAt = new Date().toISOString();
+  return entries;
 }
 
 export { IndexedDbUnitOfWork as AppRepository };
