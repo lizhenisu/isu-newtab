@@ -9,7 +9,7 @@ export type RemoteMetadata = {
 };
 
 export type AdapterStatus = {
-  state: 'idle' | 'syncing' | 'warning' | 'error' | 'disabled';
+  state: 'idle' | 'syncing' | 'warning' | 'error' | 'disabled' | 'auth-required';
   message?: string;
   usedBytes?: number;
 };
