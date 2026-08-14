@@ -17,7 +17,7 @@ import {
 import { canonicalStringify } from './codec';
 import { compareBySortKey } from '../domain/sort';
 import { buildDesktopSnapshot, desktopPlacements, samePosition } from '../domain/desktop';
-import { executeDesktopCommand } from '../layout/desktop-lifecycle';
+import { executePieceDesktopCommand } from '../layout/piece-desktop-adapter';
 import { PIECE_MAX_X, PIECE_MIN_X, piecePositionsOverlap, type Piece, type PiecePosition } from '../domain/pieces';
 
 export function createSyncProjection(config: AppConfig): SyncAppConfig {
@@ -38,6 +38,8 @@ function projectWallpaper(wallpaper: AppConfig['appearance']['wallpaper']['value
     case 'builtin': return wallpaper;
     case 'wallhaven': return { type: 'wallhaven', imageUrl: wallpaper.imageUrl };
     case 'wallhaven-random': return wallpaper;
+    case 'bing': return wallpaper;
+    case 'bing-daily': return wallpaper;
     case 'unsplash': return wallpaper;
     case 'upload': return undefined;
   }
@@ -82,6 +84,28 @@ export function mergeEnvelopes(
   return mergeWithBase(undefined, local, remote, identity);
 }
 
+/**
+ * First-bind merge for two snapshots which deliberately have no shared
+ * baseline yet.  Entity UUIDs and revisions are still authoritative, but
+ * tombstones are excluded: without a common base an absent entity means
+ * "unknown", never "deleted".  This prevents a new installation from
+ * silently deleting either side while it joins an existing replica.
+ */
+export function bootstrapMerge(local: SyncEnvelope, remote: SyncEnvelope, identity: DeviceIdentity): SyncEnvelope {
+  const localForBootstrap: SyncEnvelope = {
+    ...structuredClone(local),
+    datasetId: remote.datasetId,
+    epoch: remote.epoch,
+    config: { ...structuredClone(local.config), datasetId: remote.datasetId },
+    metadata: { tombstones: [] },
+  };
+  const remoteForBootstrap: SyncEnvelope = {
+    ...structuredClone(remote),
+    metadata: { tombstones: [] },
+  };
+  return mergeWithBase(undefined, localForBootstrap, remoteForBootstrap, identity);
+}
+
 /** Merges local and remote envelopes against their last confirmed common base. */
 export function mergeThreeWay(
   base: SyncEnvelope,
@@ -112,6 +136,7 @@ function mergeWithBase(
   const widgetLayout = mergeVersionedThreeWay(base?.config.appearance.widgetLayout, local.config.appearance.widgetLayout, remote.config.appearance.widgetLayout);
   const theme = mergeVersionedThreeWay(base?.config.appearance.theme, local.config.appearance.theme, remote.config.appearance.theme);
   const blur = mergeVersionedThreeWay(base?.config.appearance.blur, local.config.appearance.blur, remote.config.appearance.blur);
+  const wallpaperStartupFadeMs = mergeVersionedThreeWay(base?.config.appearance.wallpaperStartupFadeMs, local.config.appearance.wallpaperStartupFadeMs, remote.config.appearance.wallpaperStartupFadeMs);
   const solidColor = mergeVersionedThreeWay(base?.config.appearance.solidColor, local.config.appearance.solidColor, remote.config.appearance.solidColor);
   const search = mergeVersionedThreeWay(base?.config.appearance.search, local.config.appearance.search, remote.config.appearance.search);
   const mergedConfig: SyncEnvelope['config'] = {
@@ -120,7 +145,7 @@ function mergeWithBase(
     updatedAt: new Date().toISOString(),
     groups: repaired.groups,
     shortcuts: repaired.shortcuts,
-    appearance: { theme, blur, solidColor, widgetLayout, search, ...(wallpaper ? { wallpaper } : {}) },
+    appearance: { theme, blur, wallpaperStartupFadeMs, solidColor, widgetLayout, search, ...(wallpaper ? { wallpaper } : {}) },
   };
   // A piece is a placement projection of a business entity.  Its bucket is
   // merged independently for fine-grained sync, but a deleted shortcut or
@@ -129,7 +154,7 @@ function mergeWithBase(
     mergePieces(base?.pieces ?? [], local.pieces ?? [], remote.pieces ?? []),
     mergedConfig,
   ), revision);
-  const desktopRepair = executeDesktopCommand(buildDesktopSnapshot(mergedConfig as AppConfig), { type: 'repair' });
+  const desktopRepair = executePieceDesktopCommand(buildDesktopSnapshot(mergedConfig as AppConfig), { type: 'repair' });
   let widgetLayoutRepaired = false;
   for (const placement of desktopPlacements(desktopRepair.items)) {
     if (placement.kind === 'shortcut') {
