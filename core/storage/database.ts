@@ -3,6 +3,7 @@ import type {
   AppConfig,
   AppLanguage,
   AssetRecord,
+  BingWallpaperQuality,
   DeviceIdentity,
   OutboxEntry,
   ProviderCursor,
@@ -11,11 +12,13 @@ import type {
   SyncMetadata,
   SyncMode,
 } from '../domain/types';
-import type { RandomWallpaperState } from '../wallpaper/random';
+import type { PreparedRandomWallpaperState, RandomWallpaperState } from '../wallpaper/random';
+import type { BingDailyState } from '../wallpaper/bing';
 import type { WeatherPreferences } from '../weather/preferences';
 import type { WeatherCache } from '../weather/cache';
 import type { Piece } from '../domain/pieces';
 import type { SearchHistoryEntry } from '../search/history';
+import type { SyncReplica } from '../sync/replica';
 
 interface NewTabDatabase extends DBSchema {
   config: { key: 'current'; value: AppConfig };
@@ -24,17 +27,18 @@ interface NewTabDatabase extends DBSchema {
   assets: { key: string; value: AssetRecord };
   cursors: { key: string; value: ProviderCursor };
   settings: {
-    key: 'deviceIdentity' | 'syncMode' | 'searchHistory' | 'searchHistorySource' | 'appLanguage' | 'weatherPreferences' | 'weatherCache' | 'randomWallpaper';
-    value: DeviceIdentity | SyncMode | SearchHistoryEntry[] | SearchHistorySource | AppLanguage | WeatherPreferences | WeatherCache | RandomWallpaperState;
+    key: 'deviceIdentity' | 'syncMode' | 'searchHistory' | 'searchHistorySource' | 'appLanguage' | 'weatherPreferences' | 'weatherCache' | 'randomWallpaper' | 'randomWallpaperNext' | 'bingDailyWallpaper' | 'bingWallpaperQuality';
+    value: DeviceIdentity | SyncMode | SearchHistoryEntry[] | SearchHistorySource | AppLanguage | WeatherPreferences | WeatherCache | RandomWallpaperState | PreparedRandomWallpaperState | BingDailyState | BingWallpaperQuality;
   };
   checkpoints: { key: string; value: SyncCheckpoint };
   pieces: { key: string; value: Piece };
+  syncReplicas: { key: string; value: SyncReplica };
 }
 
 let databasePromise: Promise<IDBPDatabase<NewTabDatabase>> | undefined;
 const DATABASE_NAME = 'isu-newtab';
 const LEGACY_DATABASE_NAME = ['isu', 'new', 'tab'].join('-');
-const STORE_NAMES = ['config', 'metadata', 'outbox', 'assets', 'cursors', 'settings', 'checkpoints', 'pieces'] as const;
+const STORE_NAMES = ['config', 'metadata', 'outbox', 'assets', 'cursors', 'settings', 'checkpoints', 'pieces', 'syncReplicas'] as const;
 
 export function getDatabase(): Promise<IDBPDatabase<NewTabDatabase>> {
   databasePromise ??= openDatabase();
@@ -42,7 +46,7 @@ export function getDatabase(): Promise<IDBPDatabase<NewTabDatabase>> {
 }
 
 async function openDatabase(): Promise<IDBPDatabase<NewTabDatabase>> {
-  const database = await openDB<NewTabDatabase>(DATABASE_NAME, 2, {
+  const database = await openDB<NewTabDatabase>(DATABASE_NAME, 3, {
     upgrade(current) {
       if (!current.objectStoreNames.contains('config')) current.createObjectStore('config');
       if (!current.objectStoreNames.contains('metadata')) current.createObjectStore('metadata');
@@ -52,6 +56,7 @@ async function openDatabase(): Promise<IDBPDatabase<NewTabDatabase>> {
       if (!current.objectStoreNames.contains('settings')) current.createObjectStore('settings');
       if (!current.objectStoreNames.contains('checkpoints')) current.createObjectStore('checkpoints', { keyPath: 'id' });
       if (!current.objectStoreNames.contains('pieces')) current.createObjectStore('pieces', { keyPath: 'id' });
+      if (!current.objectStoreNames.contains('syncReplicas')) current.createObjectStore('syncReplicas', { keyPath: 'providerId' });
     },
   });
   await migrateLegacyDatabase(database);
