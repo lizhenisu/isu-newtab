@@ -5,6 +5,7 @@ import type {
   OutboxEntry,
   ProviderCursor,
   Shortcut,
+  ShortcutInput,
   ShortcutGroup,
   SyncCheckpoint,
   SyncMetadata,
@@ -12,12 +13,23 @@ import type {
   Wallpaper,
 } from '../domain/types';
 import type { DesktopCommit } from '../domain/desktop';
+import type { FolderShortcutDesktopDropPlan } from '../layout/folder-shortcut-desktop-drop';
 import type { WidgetPosition } from '../domain/widgets';
 import type { Piece, PiecePosition, PieceSnapshot } from '../domain/pieces';
-import type { RandomWallpaperState } from '../wallpaper/random';
+import type { PreparedRandomWallpaperState, RandomWallpaperState } from '../wallpaper/random';
+import type { BingDailyState } from '../wallpaper/bing';
+import type { SyncReplica } from '../sync/replica';
+
+export type AppStateSnapshot = {
+  config: AppConfig;
+  pieces: Piece[];
+  syncMode: SyncMode;
+};
 
 export interface PieceRepository {
   getPieces(): Promise<Piece[]>;
+  getSyncReplica(providerId: string): Promise<SyncReplica | undefined>;
+  putSyncReplica(replica: SyncReplica): Promise<void>;
   putPieces(pieces: Piece[]): Promise<void>;
   createPiece(piece: Piece): Promise<void>;
   movePiece(id: string, position: PiecePosition): Promise<void>;
@@ -33,22 +45,34 @@ export interface PieceRepository {
 export interface ConfigRepository {
   initialize(): Promise<AppConfig>;
   getConfig(): Promise<AppConfig>;
+  /** Reads values rendered by the new-tab page from one IndexedDB snapshot. */
+  getAppStateSnapshot(): Promise<AppStateSnapshot>;
   addGroup(name: string, position?: WidgetPosition): Promise<ShortcutGroup>;
   updateGroup(id: string, patch: Pick<ShortcutGroup, 'name' | 'collapsed'>): Promise<void>;
   deleteGroup(id: string): Promise<void>;
-  addShortcut(input: Pick<Shortcut, 'name' | 'url' | 'groupId'> & { position?: WidgetPosition }): Promise<Shortcut>;
-  updateShortcut(id: string, input: Pick<Shortcut, 'name' | 'url' | 'groupId'>): Promise<void>;
-  moveShortcut(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: DesktopCommit): Promise<void>;
+  addShortcut(input: ShortcutInput & { position?: WidgetPosition }): Promise<Shortcut>;
+  updateShortcut(id: string, input: ShortcutInput): Promise<void>;
+  moveShortcut(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: DesktopCommit | FolderShortcutDesktopDropPlan): Promise<AppStateSnapshot>;
   moveGroup(id: string, beforeId?: string, afterId?: string): Promise<void>;
   deleteShortcut(id: string): Promise<void>;
   commitDesktopResult(commit: DesktopCommit): Promise<void>;
-  setWidgetEnabled(id: import('../domain/widgets').SystemWidgetId, enabled: boolean): Promise<void>;
+  setWidgetEnabled(id: import('../domain/widgets').ConfigurableWidgetId, enabled: boolean): Promise<void>;
   updateAppearance<K extends keyof AppConfig['appearance']>(key: K, value: AppConfig['appearance'][K]['value']): Promise<void>;
   setWallpaper(wallpaper: Wallpaper): Promise<void>;
   setSolidWallpaper(color: string): Promise<void>;
   getRandomWallpaperState(): Promise<RandomWallpaperState | undefined>;
   saveRandomWallpaperState(state: RandomWallpaperState, blob: Blob): Promise<void>;
+  getPreparedRandomWallpaperState(): Promise<PreparedRandomWallpaperState | undefined>;
+  savePreparedRandomWallpaperState(state: PreparedRandomWallpaperState, blob: Blob): Promise<void>;
+  promotePreparedRandomWallpaperState(now?: Date): Promise<RandomWallpaperState | undefined>;
+  updateRandomWallpaperState(state: RandomWallpaperState): Promise<void>;
+  clearPreparedRandomWallpaperState(): Promise<void>;
   clearRandomWallpaperState(): Promise<void>;
+  getBingWallpaperQuality(): Promise<import('../domain/types').BingWallpaperQuality>;
+  setBingWallpaperQuality(quality: import('../domain/types').BingWallpaperQuality): Promise<void>;
+  getBingDailyState(): Promise<BingDailyState | undefined>;
+  saveBingDailyState(state: BingDailyState, blob: Blob): Promise<void>;
+  updateBingDailyState(state: BingDailyState): Promise<void>;
   subscribe(listener: () => void): () => void;
 }
 
@@ -62,6 +86,8 @@ export interface SyncRepository {
   setSyncMode(mode: SyncMode): Promise<void>;
   getDeviceIdentity(): Promise<DeviceIdentity>;
   getPieces(): Promise<Piece[]>;
+  getSyncReplica(providerId: string): Promise<SyncReplica | undefined>;
+  putSyncReplica(replica: SyncReplica): Promise<void>;
   putCursor(cursor: ProviderCursor): Promise<void>;
   getCursor(providerId: string): Promise<ProviderCursor | undefined>;
   removeOutbox(opIds: string[]): Promise<void>;
@@ -71,9 +97,16 @@ export interface SyncRepository {
     metadata: SyncMetadata,
     identity: DeviceIdentity,
     cursor: ProviderCursor,
-    options?: { pendingRevision?: OutboxEntry['revision']; discardOutbox?: boolean; pieces?: Piece[] },
+    options?: {
+      pendingRevision?: OutboxEntry['revision'];
+      discardOutbox?: boolean;
+      pieces?: Piece[];
+      replica?: SyncReplica;
+      confirmedOutboxIds?: string[];
+    },
   ): Promise<void>;
   updateSyncControl(metadata: SyncMetadata, identity: DeviceIdentity, cursor: ProviderCursor): Promise<void>;
+  confirmSyncReplica(replica: SyncReplica, confirmedOutboxIds: string[], cursor?: ProviderCursor): Promise<void>;
   importExternalSync(remote: AppConfig): Promise<void>;
 }
 
@@ -82,6 +115,10 @@ export interface AssetRepository {
   putAsset(key: string, blob: Blob, sourceUrl?: string): Promise<void>;
   getAsset(key: string): Promise<Blob | undefined>;
   getAssetRecord(key: string): Promise<AssetRecord | undefined>;
+  putShortcutIcon(shortcutId: string, blob: Blob, sourceUrl: string): Promise<void>;
+  getShortcutIcon(shortcutId: string): Promise<Blob | undefined>;
+  getShortcutIcons(shortcutIds: string[]): Promise<Map<string, Blob>>;
+  clearShortcutIcon(shortcutId: string): Promise<void>;
 }
 
 export interface BackupRepository {
