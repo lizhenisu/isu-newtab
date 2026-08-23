@@ -1,5 +1,5 @@
 import { DndContext, PointerSensor, pointerWithin, useDraggable, useDroppable, useSensor, useSensors, type DragEndEvent, type DragMoveEvent } from '@dnd-kit/core';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t } from '../../../core/browser/i18n';
 import { faviconUrl } from '../../../core/domain/url';
 import { pieceGridStyle, PIECE_SIZE_PRESETS, searchPercentToPieceWidth, type Piece, type PiecePosition } from '../../../core/domain/pieces';
@@ -22,15 +22,25 @@ export function PieceBoard({ pieces, context, onPiecesChanged }: Props) {
   const boardRef = useRef<HTMLDivElement>(null);
   const dragBaseRef = useRef<Piece[]>(pieces);
   const activeDragId = useRef<string | undefined>(undefined);
+  const pendingDropRef = useRef<{ id: string; position: PiecePosition } | undefined>(undefined);
   const [dragging, setDragging] = useState(false);
+  const [activeDragPieceId, setActiveDragPieceId] = useState<string>();
   const [preview, setPreview] = useState<Piece[]>();
   const [openFolderId, setOpenFolderId] = useState<string>();
   const [folderTargetId, setFolderTargetId] = useState<string>();
   const previewTimer = useRef<number | undefined>(undefined);
   const { blockClicks, blockNextClick } = useDragClickGuard();
   const derivedPieces = useMemo(() => augmentPieces(pieces, context), [pieces, context]);
+  useEffect(() => {
+    const pending = pendingDropRef.current;
+    if (!pending) return;
+    const persisted = pieces.find((piece) => piece.id === pending.id);
+    if (!persisted || !samePosition(persisted.position, pending.position)) return;
+    pendingDropRef.current = undefined;
+    setActiveDragPieceId((current) => current === pending.id ? undefined : current);
+  }, [pieces]);
   const shown = preview
-    ? preview.map((piece) => piece.id === activeDragId.current ? dragBaseRef.current.find((basePiece) => basePiece.id === piece.id) ?? piece : piece)
+    ? preview.map((piece) => piece.id === activeDragId.current && dragging ? dragBaseRef.current.find((basePiece) => basePiece.id === piece.id) ?? piece : piece)
     : derivedPieces;
   useNativeDesktopContextMenu(boardRef, useMemo(() => shown.filter((piece) => piece.container.kind === 'desktop' && piece.position).map((piece) => pieceToDesktopItem(piece, context)), [shown, context]), (action, target) => void handleContextAction(action, target, shown, context));
   const rows = Math.max(18, ...shown.filter((piece) => piece.container.kind === 'desktop').map((piece) => (piece.position?.y ?? 0) + (piece.position?.height ?? 1))) + 2;
@@ -53,33 +63,57 @@ export function PieceBoard({ pieces, context, onPiecesChanged }: Props) {
         const columnWidth = board.width / 48;
         const centerX = initial.left + event.delta.x + initial.width / 2;
         const centerY = initial.top + event.delta.y + initial.height / 2;
-        await context.onMoveShortcut(shortcutId, 'default', undefined, undefined, { column: Math.max(0, Math.min(44, Math.round((centerX - board.left) / columnWidth) - 2)), row: Math.max(0, Math.round((centerY - board.top) / 40) - 1), width: 4, height: 3, gridVersion: 3 });
+        try {
+          await context.onMoveShortcut(shortcutId, 'default', undefined, undefined, { column: Math.max(0, Math.min(44, Math.round((centerX - board.left) / columnWidth) - 2)), row: Math.max(0, Math.round((centerY - board.top) / 40) - 1), width: 4, height: 3, gridVersion: 3 });
+        } finally {
+          setActiveDragPieceId(undefined);
+        }
+      } else {
+        setActiveDragPieceId(undefined);
       }
       return;
     }
     const active = base.find((piece) => piece.id === id);
     setDragging(false);
     setFolderTargetId(undefined);
-    if (!active?.position) { setPreview(undefined); activeDragId.current = undefined; return; }
+    if (!active?.position) { setPreview(undefined); activeDragId.current = undefined; setActiveDragPieceId(undefined); return; }
     const folder = findFolderDrop(id, event);
     if (active.kind === 'shortcut' && folder) {
       setPreview(undefined);
       activeDragId.current = undefined;
-      await context.onMoveShortcut(active.payloadRef, folder);
+      try {
+        await context.onMoveShortcut(active.payloadRef, folder);
+      } finally {
+        setActiveDragPieceId(undefined);
+      }
       return;
     }
     const board = boardRef.current?.getBoundingClientRect();
     const initial = event.active.rect.current.initial;
-    if (!board || !initial) { setPreview(undefined); activeDragId.current = undefined; return; }
+    if (!board || !initial) { setPreview(undefined); activeDragId.current = undefined; setActiveDragPieceId(undefined); return; }
     const columnWidth = board.width / 48;
     const target: PiecePosition = { ...active.position, x: active.position.x + Math.round(event.delta.x / columnWidth), y: active.position.y + Math.round(event.delta.y / 40) };
     const direction: PieceDragDirection = Math.abs(event.delta.x) >= Math.abs(event.delta.y)
       ? { x: event.delta.x > 0 ? 1 : event.delta.x < 0 ? -1 : 0, y: 0 }
       : { x: 0, y: event.delta.y > 0 ? 1 : -1 };
     const result = new PieceLayoutEngine().place(base, id, target, direction);
-    if (result.pieces.every((piece) => samePiecePlacement(piece, base.find((item) => item.id === piece.id)))) { setPreview(undefined); activeDragId.current = undefined; return; }
+    if (result.pieces.every((piece) => samePiecePlacement(piece, base.find((item) => item.id === piece.id)))) { setPreview(undefined); activeDragId.current = undefined; setActiveDragPieceId(undefined); return; }
     setPreview(result.pieces);
-    try { await appRepositories.pieces.putPieces(result.pieces); await onPiecesChanged?.(); } finally { setPreview(undefined); activeDragId.current = undefined; }
+    const targetPiece = result.pieces.find((piece) => piece.id === id);
+    if (targetPiece?.position) pendingDropRef.current = { id, position: { ...targetPiece.position } };
+    let committed = false;
+    try {
+      await appRepositories.pieces.putPieces(result.pieces);
+      await onPiecesChanged?.();
+      committed = true;
+    } finally {
+      setPreview(undefined);
+      activeDragId.current = undefined;
+      if (!committed || !onPiecesChanged) {
+        pendingDropRef.current = undefined;
+        setActiveDragPieceId(undefined);
+      }
+    }
   };
 
   const findFolderDrop = (id: string, event: DragEndEvent) => {
@@ -107,7 +141,7 @@ export function PieceBoard({ pieces, context, onPiecesChanged }: Props) {
   }
 
   return <DndContext sensors={sensors} collisionDetection={pointerWithin}
-    onDragStart={({ active }) => { activeDragId.current = String(active.id); blockClicks(String(active.id)); dragBaseRef.current = derivedPieces.map((piece) => structuredClone(piece)); setDragging(true); }}
+    onDragStart={({ active }) => { activeDragId.current = String(active.id); setActiveDragPieceId(String(active.id)); blockClicks(String(active.id)); dragBaseRef.current = derivedPieces.map((piece) => structuredClone(piece)); setDragging(true); }}
     onDragMove={(event) => {
       const base = dragBaseRef.current;
       const active = base.find((piece) => piece.id === String(event.active.id));
@@ -125,7 +159,7 @@ export function PieceBoard({ pieces, context, onPiecesChanged }: Props) {
       if (previewTimer.current) window.clearTimeout(previewTimer.current);
       previewTimer.current = window.setTimeout(() => { setPreview(result.pieces); previewTimer.current = undefined; }, 400);
     }}
-    onDragCancel={({ active }) => { if (previewTimer.current) window.clearTimeout(previewTimer.current); blockNextClick(String(active.id)); activeDragId.current = undefined; setDragging(false); setFolderTargetId(undefined); setPreview(undefined); }}
+    onDragCancel={({ active }) => { if (previewTimer.current) window.clearTimeout(previewTimer.current); blockNextClick(String(active.id)); activeDragId.current = undefined; setActiveDragPieceId(undefined); setDragging(false); setFolderTargetId(undefined); setPreview(undefined); }}
     onDragEnd={(event) => void finish(event)}>
     <div ref={boardRef} className={`pieceBoard dashboardBoard ${dragging ? 'pieceBoard--dragging' : ''} ${preview ? 'reflowPreview' : ''}`} style={{ '--piece-rows': rows, gridTemplateRows: `repeat(${rows}, 40px)`, minHeight: `${rows * 40}px` } as React.CSSProperties}>
       {shown.filter((piece) => piece.container.kind === 'desktop' && piece.position).map((piece) => {
@@ -135,7 +169,7 @@ export function PieceBoard({ pieces, context, onPiecesChanged }: Props) {
         // preview marker even though their grid position changed.
         const basePiece = dragBaseRef.current.find((item) => item.id === piece.id);
         const displaced = Boolean(preview && activeDragId.current !== piece.id && basePiece && !samePiecePlacement(piece, basePiece));
-        return <PieceCell key={piece.id} piece={piece} context={context} dragging={dragging} displaced={displaced} folderTarget={folderTargetId === piece.payloadRef} onOpenFolder={setOpenFolderId} onAdd={() => context.onAddShortcut()} />;
+        return <PieceCell key={piece.id} piece={piece} context={context} dragging={dragging} activeDragPieceId={activeDragPieceId} displaced={displaced} folderTarget={folderTargetId === piece.payloadRef} onOpenFolder={setOpenFolderId} onAdd={() => context.onAddShortcut()} />;
       })}
     </div>
     {openFolderId && <FolderDialog folder={context.config.groups.find((group) => group.id === openFolderId)!} shortcuts={context.config.shortcuts.filter((shortcut) => shortcut.groupId === openFolderId)} onClose={() => setOpenFolderId(undefined)} />}
@@ -174,12 +208,12 @@ function augmentPieces(pieces: Piece[], context: DashboardWidgetContext): Piece[
   return result;
 }
 
-function PieceCell({ piece, context, dragging, displaced, folderTarget, onOpenFolder, onAdd }: { piece: Piece; context: DashboardWidgetContext; dragging: boolean; displaced: boolean; folderTarget: boolean; onOpenFolder(id: string): void; onAdd(): void }) {
+function PieceCell({ piece, context, dragging, activeDragPieceId, displaced, folderTarget, onOpenFolder, onAdd }: { piece: Piece; context: DashboardWidgetContext; dragging: boolean; activeDragPieceId?: string; displaced: boolean; folderTarget: boolean; onOpenFolder(id: string): void; onAdd(): void }) {
   const draggable = useDraggable({ id: piece.id, disabled: piece.kind === 'system-widget' && piece.container.kind !== 'desktop' });
   const droppable = useDroppable({ id: `piece:${piece.id}`, disabled: piece.kind !== 'folder' });
   const nodeRef = useRef<HTMLElement | null>(null);
   const position = piece.position!;
-  useDampedLayoutMotion(nodeRef, { column: position.x, row: position.y }, draggable.isDragging && !displaced);
+  useDampedLayoutMotion(nodeRef, { column: position.x, row: position.y }, (draggable.isDragging && !displaced) || activeDragPieceId === piece.id);
   const content: ReactNode = piece.kind === 'system-widget'
     ? WIDGET_REGISTRY[piece.payloadRef as keyof typeof WIDGET_REGISTRY].render(context)
     : piece.kind === 'shortcut'
@@ -189,7 +223,7 @@ function PieceCell({ piece, context, dragging, displaced, folderTarget, onOpenFo
         : <button type="button" className="pieceAdd" onClick={onAdd}><span>＋</span><strong>{t('addShortcut')}</strong></button>;
   return <section ref={(node) => { draggable.setNodeRef(node); droppable.setNodeRef(node); nodeRef.current = node; }} data-piece-id={piece.id} data-desktop-key={pieceKey(piece)} data-drag-click-key={piece.id} data-widget-id={piece.kind === 'system-widget' ? piece.payloadRef : undefined}
     className={`piece dashboardWidget desktopItem--${piece.kind} piece--${piece.kind} ${piece.kind === 'system-widget' ? `dashboardWidget--${piece.payloadRef}` : ''} ${folderTarget ? 'isFolderTarget' : ''} ${displaced ? 'isDisplaced' : ''} ${draggable.isDragging ? 'piece--dragging' : ''} ${dragging ? 'piece--editable' : ''}`}
-    style={{ ...pieceGridStyle(position), transform: draggable.transform ? `translate3d(${draggable.transform.x}px,${draggable.transform.y}px,0)` : undefined }}
+    style={{ ...pieceGridStyle(position), transform: dragging && draggable.transform ? `translate3d(${draggable.transform.x}px,${draggable.transform.y}px,0)` : undefined }}
     onPointerDown={(event) => {
       if (piece.kind !== 'add-shortcut' && (event.target as HTMLElement).closest('button,input,textarea,select,[contenteditable="true"]')) return;
       draggable.listeners?.onPointerDown?.(event);
@@ -250,4 +284,8 @@ function FolderContent({ group, shortcuts, onOpen }: { group?: { name: string };
 function samePiecePlacement(left: Piece, right?: Piece): boolean {
   if (!right) return false;
   return left.container.kind === right.container.kind && left.position?.x === right.position?.x && left.position?.y === right.position?.y && left.position?.width === right.position?.width && left.position?.height === right.position?.height;
+}
+
+function samePosition(left?: PiecePosition, right?: PiecePosition): boolean {
+  return left?.x === right?.x && left?.y === right?.y && left?.width === right?.width && left?.height === right?.height;
 }

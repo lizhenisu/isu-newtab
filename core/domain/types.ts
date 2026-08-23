@@ -47,12 +47,14 @@ export type WallpaperSyncProjection =
   | { type: 'unsplash'; imageUrl: string; sourceUrl: string; photoId: string; photographerName: string; photographerUrl: string };
 
 export type SearchPreferences = {
+  engine: SearchEngine;
   widthPercent: number;
   backgroundOpacity: number;
   historyEnabled: boolean;
   suggestionsEnabled: boolean;
 };
 
+export type SearchEngine = 'google' | 'bing';
 export type SearchHistorySource = 'local' | 'chrome';
 export type AppLanguage = 'system' | 'zh_CN' | 'en';
 

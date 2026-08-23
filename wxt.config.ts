@@ -21,6 +21,7 @@ export default defineConfig({
       'https://api.unsplash.com/*',
       'https://images.unsplash.com/*',
       'https://suggestqueries.google.com/*',
+      'https://www.bing.com/AS/*',
       'https://v1.hitokoto.cn/*',
       'https://zenquotes.io/*',
     ],

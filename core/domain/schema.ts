@@ -65,6 +65,7 @@ const legacyWidgetLayout = () => ({
 });
 
 const searchPreferencesSchema = z.object({
+  engine: z.enum(['google', 'bing']).default('google'),
   widthPercent: z.number().int().min(25).max(100),
   backgroundOpacity: z.number().int().min(0).max(100),
   historyEnabled: z.boolean(),

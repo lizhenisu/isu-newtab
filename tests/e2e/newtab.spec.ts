@@ -38,7 +38,8 @@ test('loads the extension, creates a shortcut, and persists it after reload', as
   expect(manifest.permissions).toContain('contextMenus');
   expect(manifest.permissions).not.toContain('history');
   expect(manifest.optional_permissions).toContain('history');
-  expect(manifest.host_permissions).toEqual(expect.arrayContaining(['https://v1.hitokoto.cn/*', 'https://zenquotes.io/*']));
+  expect(manifest.host_permissions).toEqual(expect.arrayContaining(['https://v1.hitokoto.cn/*', 'https://zenquotes.io/*', 'https://www.bing.com/AS/*']));
+  expect(JSON.stringify(manifest)).not.toContain('lens.google.com');
   expect(manifest.icons).toMatchObject({ 16: 'icons/isu-16.png', 32: 'icons/isu-32.png', 48: 'icons/isu-48.png', 128: 'icons/isu-128.png' });
   const page = await context.newPage();
   const pageErrors: Error[] = [];
@@ -48,17 +49,7 @@ test('loads the extension, creates a shortcut, and persists it after reload', as
   await expect(page).toHaveTitle(/New Tab|新标签页/);
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/chrome-new-tab.svg');
   await expect(page.getByRole('textbox', { name: /Search the web|搜索互联网/, exact: true })).toBeVisible();
-  await page.getByRole('button', { name: /Search with Lens|使用智能镜头搜索/ }).click();
-  const lensPanel = page.getByRole('dialog', { name: /Search any image with Lens|使用智能镜头搜索任意图片/ });
-  await expect(lensPanel).toBeVisible();
-  await expect(page.locator('[data-widget-id="search"]')).toHaveCSS('z-index', '30');
-  const lensPanelBox = await lensPanel.boundingBox();
-  if (!lensPanelBox) throw new Error('Lens search panel was not measurable');
-  expect(lensPanelBox.width).toBeGreaterThan(700);
-  expect(lensPanelBox.height).toBeGreaterThan(400);
-  await expect(lensPanel.getByRole('button', { name: /upload a file|上传文件/ })).toBeVisible();
-  await lensPanel.getByRole('button', { name: /Close|关闭/ }).click();
-  await expect(lensPanel).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: /Add shortcut|添加快捷方式/ }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toHaveClass(/modal--editor/);
@@ -96,6 +87,90 @@ test('loads the extension, creates a shortcut, and persists it after reload', as
   await page.reload();
   await expect(page.getByText('OpenAI', { exact: true })).toBeVisible();
   expect(pageErrors).toEqual([]);
+});
+
+test('uses the selected engine for text and visual search in the current tab', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+
+  await context.route('https://images.google.com/**', (route) => route.fulfill({
+    contentType: 'text/html',
+    body: '<title>Google Images</title>',
+  }));
+  await page.getByRole('button', { name: /Open Google Images|打开 Google 图片搜索/ }).click();
+  await expect(page).toHaveURL(/https:\/\/images\.google\.com\/\?hl=/);
+
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByLabel(/Settings|设置/).click();
+  const engine = page.getByLabel(/Search engine|搜索引擎/);
+  await expect(engine).toHaveValue('google');
+  await engine.selectOption('bing');
+  await expect(engine).toHaveValue('bing');
+  await page.getByRole('button', { name: /Close|关闭/ }).click();
+  await expect(page.getByRole('button', { name: /Open Bing Images|打开 Bing 图片搜索/ })).toBeVisible();
+
+  await context.route('https://www.bing.com/search**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>Bing Search</title>' }));
+  await page.getByRole('textbox', { name: /Search the web|搜索互联网/ }).fill('Isu NewTab');
+  await page.getByRole('search').press('Enter');
+  await expect(page).toHaveURL(/https:\/\/www\.bing\.com\/search\?q=Isu\+NewTab&setlang=/);
+
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await expect(page.getByLabel(/Search engine|搜索引擎/)).toHaveCount(0);
+  await expect(page.getByRole('textbox', { name: /Search the web|搜索互联网/ })).toHaveAttribute('placeholder', /Search Bing|在 Bing/);
+  await context.route('https://www.bing.com/images**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>Bing Images</title>' }));
+  await page.getByRole('button', { name: /Open Bing Images|打开 Bing 图片搜索/ }).click();
+  await expect(page).toHaveURL(/https:\/\/www\.bing\.com\/images\?setlang=/);
+});
+
+test('uses Bing suggestions without requesting Google and preserves local history on failure', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  let googleSuggestionRequests = 0;
+  await context.route('https://suggestqueries.google.com/**', async (route) => {
+    googleSuggestionRequests += 1;
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(['unexpected', []]) });
+  });
+  await context.route('https://www.bing.com/AS/Suggestions**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: '<ul><li query="Bing online suggestion"></li></ul>',
+  }));
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByLabel(/Settings|设置/).click();
+  await page.getByLabel(/Search engine|搜索引擎/).selectOption('bing');
+  await page.getByRole('button', { name: /Close|关闭/ }).click();
+
+  const input = page.getByRole('textbox', { name: /Search the web|搜索互联网/ });
+  await input.fill('bing');
+  await expect(page.getByRole('option', { name: 'Bing online suggestion' })).toBeVisible();
+  expect(googleSuggestionRequests).toBe(0);
+
+  await page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction('settings', 'readwrite');
+      transaction.objectStore('settings').put([{ query: 'bing local history', searchedAt: new Date().toISOString() }], 'searchHistory');
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  });
+  await context.unroute('https://www.bing.com/AS/Suggestions**');
+  await context.route('https://www.bing.com/AS/Suggestions**', (route) => route.fulfill({ status: 503 }));
+  await input.evaluate((element: HTMLInputElement) => element.blur());
+  await input.focus();
+  await input.fill('bing local');
+  await expect(page.getByRole('option', { name: 'bing local history' })).toBeVisible();
+  expect(googleSuggestionRequests).toBe(0);
 });
 
 test('places shortcuts at the add tile and supports a single-level desktop folder', async () => {
@@ -799,6 +874,12 @@ test('customizes the search box and shows local history and online suggestions',
       request.onerror = () => reject(request.error);
     });
   })).toEqual({ blur: 0, widthPercent: 100, backgroundOpacity: 100 });
+  await background.evaluate((input: HTMLInputElement) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '40');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect(background).toHaveValue('40');
   await page.getByRole('button', { name: /Close|关闭/ }).click();
 
   const shell = page.locator('.searchWidgetShell');
@@ -809,7 +890,8 @@ test('customizes the search box and shows local history and online suggestions',
   const searchForm = page.locator('form.search');
   const searchInput = page.getByRole('textbox', { name: /Search the web|搜索互联网/, exact: true });
   const searchSubmit = searchForm.locator('.searchSubmit');
-  await expect(searchForm).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(shell).toHaveCSS('--search-background-alpha', '0.4');
+  await expect(searchForm).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.4)');
   await expect(searchInput).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(searchInput).toHaveCSS('border-top-width', '0px');
   await expect(searchInput).toHaveCSS('box-shadow', 'none');
@@ -838,7 +920,20 @@ test('customizes the search box and shows local history and online suggestions',
   await input.evaluate((element: HTMLInputElement) => element.blur());
   await input.focus();
   await expect(page.getByRole('option').filter({ hasText: 'local history phrase' })).toBeVisible();
+  const suggestionList = page.getByRole('listbox');
+  const searchFormBox = await searchForm.boundingBox();
+  const suggestionBox = await suggestionList.boundingBox();
+  if (!searchFormBox || !suggestionBox) throw new Error('Search suggestion geometry was not measurable');
+  expect(suggestionBox.y).toBeGreaterThanOrEqual(searchFormBox.y + searchFormBox.height - 1.5);
+  expect(Math.abs(suggestionBox.x - searchFormBox.x)).toBeLessThan(1);
+  expect(Math.abs(suggestionBox.width - searchFormBox.width)).toBeLessThan(1);
+  const searchSurfaceColors = await page.evaluate(() => ({
+    search: getComputedStyle(document.querySelector('form.search')!).backgroundColor,
+    suggestions: getComputedStyle(document.querySelector('.searchSuggestions')!).backgroundColor,
+  }));
+  expect(searchSurfaceColors.suggestions).toBe(searchSurfaceColors.search);
   await input.fill('codex live');
+  await expect(input).toHaveValue('codex live');
   await expect(page.getByRole('option').filter({ hasText: 'codex live search' })).toBeVisible();
 
   await page.getByRole('button', { name: /Settings|设置/ }).click();

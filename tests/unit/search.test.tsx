@@ -5,9 +5,12 @@ import { DEFAULT_SEARCH_PREFERENCES, createDeviceIdentity, createInitialConfig }
 import { appConfigSchema, syncEnvelopeSchema } from '../../core/domain/schema';
 import { clearSearchHistory, getSearchHistory, recordSearch } from '../../core/search/history';
 import { clearChromeSearchHistoryCache } from '../../core/search/chrome-history';
-import { fetchSearchSuggestions } from '../../core/search/suggestions';
+import { fetchSearchSuggestions, parseBingSuggestionFragment } from '../../core/search/suggestions';
+import { navigateCurrentTab } from '../../core/search/current-tab-navigation';
 import { createEnvelope } from '../../core/sync/engine';
 import { SearchWidget, buildSuggestionItems } from '../../entrypoints/newtab/components/SearchWidget';
+
+vi.mock('../../core/search/current-tab-navigation', () => ({ navigateCurrentTab: vi.fn() }));
 
 type HistorySearch = (query: { text: string; startTime?: number; maxResults?: number }) => Promise<Browser.history.HistoryItem[]>;
 const historySearch = vi.mocked(browser.history.search as unknown as HistorySearch);
@@ -31,6 +34,10 @@ describe('search experience', () => {
     const oldEnvelope = structuredClone(envelope) as unknown as { config: { appearance: Record<string, unknown> } };
     delete oldEnvelope.config.appearance.search;
     expect(syncEnvelopeSchema.parse(oldEnvelope).config.appearance.search.value).toEqual(DEFAULT_SEARCH_PREFERENCES);
+
+    const missingEngine = structuredClone(config);
+    delete (missingEngine.appearance.search.value as Partial<typeof missingEngine.appearance.search.value>).engine;
+    expect(appConfigSchema.parse(missingEngine).appearance.search.value.engine).toBe('google');
   });
 
   it('stores only the 20 newest unique local history entries', async () => {
@@ -56,8 +63,27 @@ describe('search experience', () => {
   it('requests and validates Google suggestions', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(['cod', ['codex', 'coding']]), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    await expect(fetchSearchSuggestions(' cod ')).resolves.toEqual(['codex', 'coding']);
-    expect(new URL(fetchMock.mock.calls[0]![0]).searchParams.get('q')).toBe('cod');
+    await expect(fetchSearchSuggestions('google', ' cod ', 'en')).resolves.toEqual(['codex', 'coding']);
+    const target = new URL(fetchMock.mock.calls[0]![0]);
+    expect(target.origin).toBe('https://suggestqueries.google.com');
+    expect(target.searchParams.get('q')).toBe('cod');
+  });
+
+  it('uses Bing suggestions without falling back to Google', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('<ul><li query="Isu NewTab"></li><li query="isu newtab"></li><li query="Bing 搜索"></li></ul>', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(fetchSearchSuggestions('bing', ' isu ', 'zh-CN')).resolves.toEqual(['Isu NewTab', 'Bing 搜索']);
+    const target = new URL(fetchMock.mock.calls[0]![0]);
+    expect(target.origin).toBe('https://www.bing.com');
+    expect(target.pathname).toBe('/AS/Suggestions');
+    expect(target.searchParams.get('q')).toBe('isu');
+    expect(target.searchParams.get('mkt')).toBe('zh-CN');
+    expect(target.searchParams.get('cvid')).toMatch(/^[0-9A-F]{32}$/);
+  });
+
+  it('safely ignores malformed Bing suggestion fragments and caps valid results', () => {
+    expect(parseBingSuggestionFragment('<p>not a suggestion</p>')).toEqual([]);
+    expect(parseBingSuggestionFragment(`<ul>${Array.from({ length: 10 }, (_, index) => `<li query="Suggestion ${index}"></li>`).join('')}</ul>`)).toHaveLength(8);
   });
 
   it('applies visual preferences and records a submitted query before searching', async () => {
@@ -70,7 +96,7 @@ describe('search experience', () => {
     expect(shell.style.getPropertyValue('--search-background-alpha')).toBe('0.4');
     fireEvent.change(screen.getByLabelText('searchPlaceholder'), { target: { value: 'Chrome extensions' } });
     fireEvent.submit(screen.getByRole('search'));
-    await waitFor(() => expect(browser.search.query).toHaveBeenCalledWith({ text: 'Chrome extensions', disposition: 'CURRENT_TAB' }));
+    await waitFor(() => expect(navigateCurrentTab).toHaveBeenCalledWith(expect.stringContaining('https://www.google.com/search?q=Chrome+extensions&hl=en')));
     expect((await getSearchHistory())[0]?.query).toBe('Chrome extensions');
   });
 
@@ -85,25 +111,40 @@ describe('search experience', () => {
     expect(shell.style.getPropertyValue('--search-width')).toBe('80vw');
   });
 
-  it('opens and closes the Lens search panel without changing the search query', () => {
-    render(<SearchWidget preferences={{ ...DEFAULT_SEARCH_PREFERENCES, suggestionsEnabled: false }} historySource="local" />);
-    const input = screen.getByLabelText('searchPlaceholder');
-    fireEvent.change(input, { target: { value: 'keep this query' } });
-
-    fireEvent.click(screen.getByLabelText('openLensSearch'));
-    expect(screen.getByRole('dialog', { name: 'lensSearchTitle' })).toBeInTheDocument();
-    expect(screen.getByLabelText('lensPasteImageLink')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('close'));
-
+  it('uses the selected engine for visual search without rendering an upload panel', () => {
+    const { rerender } = render(<SearchWidget preferences={{ ...DEFAULT_SEARCH_PREFERENCES, suggestionsEnabled: false }} historySource="local" />);
+    fireEvent.click(screen.getByLabelText('openGoogleVisualSearch'));
+    expect(navigateCurrentTab).toHaveBeenLastCalledWith(expect.stringContaining('https://images.google.com/?hl=en'));
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(input).toHaveValue('keep this query');
+
+    rerender(<SearchWidget preferences={{ ...DEFAULT_SEARCH_PREFERENCES, engine: 'bing', suggestionsEnabled: false }} historySource="local" />);
+    expect(screen.getByLabelText('searchPlaceholder')).toHaveAttribute('placeholder', 'searchBingPrompt');
+    fireEvent.click(screen.getByLabelText('openBingVisualSearch'));
+    expect(navigateCurrentTab).toHaveBeenLastCalledWith(expect.stringContaining('https://www.bing.com/images?setlang=en-US'));
+  });
+
+  it('renders search history outside the widget clipping context', async () => {
+    await recordSearch('history outside piece');
+    render(<SearchWidget preferences={{ ...DEFAULT_SEARCH_PREFERENCES, backgroundOpacity: 42, suggestionsEnabled: false }} historySource="local" />);
+    vi.spyOn(screen.getByRole('search'), 'getBoundingClientRect').mockReturnValue({
+      x: 40, y: 100, width: 320, height: 60, top: 100, right: 360, bottom: 160, left: 40, toJSON: () => ({}),
+    } as DOMRect);
+    const input = screen.getByLabelText('searchPlaceholder');
+    fireEvent.focus(input);
+    const list = await screen.findByRole('listbox');
+    expect(list.parentElement).toHaveClass('searchSuggestionsLayer');
+    expect(list.parentElement?.parentElement).toBe(document.body);
+    expect(list).toHaveStyle({ left: '40px', top: '159px', width: '320px' });
+    expect(list.style.getPropertyValue('--search-background-alpha')).toBe('0.42');
+    expect(screen.getByRole('search').parentElement?.style.getPropertyValue('--search-background-alpha')).toBe('0.42');
+    expect(screen.getByRole('option', { name: 'history outside piece' })).toBeVisible();
   });
 
   it('does not retain a submitted query when history is disabled', async () => {
     render(<SearchWidget preferences={{ ...DEFAULT_SEARCH_PREFERENCES, historyEnabled: false, suggestionsEnabled: false }} historySource="local" />);
     fireEvent.change(screen.getByLabelText('searchPlaceholder'), { target: { value: 'private search' } });
     fireEvent.submit(screen.getByRole('search'));
-    await waitFor(() => expect(browser.search.query).toHaveBeenCalled());
+    await waitFor(() => expect(navigateCurrentTab).toHaveBeenCalled());
     expect(await getSearchHistory()).toEqual([]);
   });
 
@@ -119,7 +160,7 @@ describe('search experience', () => {
     await screen.findByRole('option', { name: /synced phrase/ });
     fireEvent.change(input, { target: { value: 'new Chrome search' } });
     fireEvent.submit(screen.getByRole('search'));
-    await waitFor(() => expect(browser.search.query).toHaveBeenCalledWith({ text: 'new Chrome search', disposition: 'CURRENT_TAB' }));
+    await waitFor(() => expect(navigateCurrentTab).toHaveBeenCalledWith(expect.stringContaining('q=new+Chrome+search')));
     expect(await getSearchHistory()).toMatchObject([{ query: 'local-only phrase' }]);
     expect(screen.queryByRole('option', { name: /local-only phrase/ })).toBeNull();
   });

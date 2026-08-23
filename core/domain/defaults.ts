@@ -7,6 +7,7 @@ export function createDeviceIdentity(): DeviceIdentity {
 }
 
 export const DEFAULT_SEARCH_PREFERENCES: SearchPreferences = {
+  engine: 'google',
   widthPercent: 50,
   backgroundOpacity: 24,
   historyEnabled: true,

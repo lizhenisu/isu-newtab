@@ -44,6 +44,14 @@ describe('backup import', () => {
     expect(imported.config.shortcuts[0]!.id).not.toBe('old');
   });
 
+  it('defaults a missing search engine in older backups to Google', async () => {
+    const source = createInitialConfig(identity('source'));
+    delete (source.appearance.search.value as Partial<typeof source.appearance.search.value>).engine;
+    const target = createInitialConfig(identity('target'));
+    const imported = await readBackup(await createBackup(source), target, identity('import'));
+    expect(imported.config.appearance.search.value.engine).toBe('google');
+  });
+
   it('exports only business configuration and the optional wallpaper', async () => {
     const source = createInitialConfig(identity('source'));
     const archive = new Uint8Array(await (await createBackup(source)).arrayBuffer());
