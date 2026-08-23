@@ -16,7 +16,7 @@ type LegacyConfig = {
 
 export function migrateAppConfig(input: unknown): AppConfig {
   const current = appConfigSchema.safeParse(input);
-  if (current.success) return current.data;
+  if (current.success) return withNewWidgetDefaults(current.data);
   if (!input || typeof input !== 'object' || (input as LegacyConfig).schemaVersion !== 0) throw new Error('UNSUPPORTED_CONFIG_SCHEMA');
   const legacy = input as LegacyConfig;
   const shortcuts = legacy.shortcuts ?? [];
@@ -25,7 +25,7 @@ export function migrateAppConfig(input: unknown): AppConfig {
   const wallpaper = legacy.wallpaper?.type === 'solid' && /^#[0-9a-f]{6}$/i.test(legacy.wallpaper.color ?? '')
     ? { type: 'solid' as const, color: legacy.wallpaper.color! }
     : { type: 'solid' as const, color: DEFAULT_SOLID_WALLPAPER_COLOR };
-  return appConfigSchema.parse({
+  return withNewWidgetDefaults(appConfigSchema.parse({
     schemaVersion: 1,
     datasetId: legacy.datasetId || crypto.randomUUID(),
     updatedAt: legacy.updatedAt && !Number.isNaN(Date.parse(legacy.updatedAt)) ? new Date(legacy.updatedAt).toISOString() : new Date().toISOString(),
@@ -47,5 +47,21 @@ export function migrateAppConfig(input: unknown): AppConfig {
       widgetLayout: { value: createDefaultWidgetLayout(), revision: revision(shortcuts.length + 6) },
       search: { value: { ...DEFAULT_SEARCH_PREFERENCES }, revision: revision(shortcuts.length + 7) },
     },
-  });
+  }));
+}
+
+function withNewWidgetDefaults(config: AppConfig): AppConfig {
+  if (config.appearance.widgetLayout.value.some((item) => item.id === 'weather')) return config;
+  const weather = createDefaultWidgetLayout().find((item) => item.id === 'weather');
+  if (!weather) return config;
+  return {
+    ...config,
+    appearance: {
+      ...config.appearance,
+      widgetLayout: {
+        ...config.appearance.widgetLayout,
+        value: [...config.appearance.widgetLayout.value, weather],
+      },
+    },
+  };
 }

@@ -1,6 +1,6 @@
 # Isu 新标签页隐私政策
 
-最后更新日期：2026 年 8 月 17 日
+最后更新日期：2026 年 8 月 23 日
 
 Isu 新标签页（以下简称“Isu”或“本扩展”）是一款用于自定义 Chrome 新标签页的扩展。本政策说明 Isu 如何处理用户数据，以及用户可以如何控制这些数据。
 
@@ -19,6 +19,7 @@ Isu 可以在浏览器本地保存时钟、搜索框、便签、专注计时器�
 - 搜索历史；
 - Unsplash Access Key；
 - 壁纸图片缓存。
+- 天气组件的位置坐标、温度单位偏好和天气响应。
 
 ### 2. 搜索历史和搜索建议
 
@@ -26,7 +27,7 @@ Isu 可以在浏览器本地保存时钟、搜索框、便签、专注计时器�
 
 用户可以在设置中主动选择“Chrome 历史”来源。只有在用户主动选择并授权后，Isu 才会读取 Chrome 浏览历史中的记录，从受支持的搜索结果页面提取搜索词，并在搜索框中显示建议。Isu 不会添加、修改、删除或上传 Chrome 浏览历史。
 
-当用户启用搜索建议时，用户在搜索框中输入的文字会发送到 Google Suggest，以返回搜索建议。用户可以随时在设置中关闭搜索建议。
+当用户启用搜索建议时，用户在搜索框中输入的文字会发送到当前选择的搜索引擎建议服务（Google Suggest 或 Bing），以返回搜索建议。用户可以随时在设置中关闭搜索建议。
 
 切回本地搜索历史或关闭搜索历史后，Isu 会撤销 Chrome 历史权限。Chrome 历史是否包含其他设备的记录，取决于用户自己的 Chrome 登录状态、同步设置和浏览器隐私策略。
 
@@ -43,6 +44,12 @@ Unsplash Access Key 仅保存在当前浏览器的本地存储中，不进入 Ch
 当界面使用中文时，Isu 会向一言（Hitokoto）请求中文每日一言；当界面使用英文时，Isu 会向 ZenQuotes 请求英文每日一言。缓存不进入 Chrome Sync、配置导出或备份。
 
 与任何 HTTPS 请求一样，第三方服务可能获得正常提供服务所需的网络信息，例如 IP 地址和请求时间。
+
+### 5. 天气和位置
+
+用户主动启用天气组件或点击“使用当前位置 / 重试”时，Isu 才会通过浏览器读取当前位置；不会在启动、同步恢复或仅显示天气组件时自动读取位置。
+
+位置坐标、城市名、温度单位偏好和天气结果只保存在当前设备。天气结果缓存 60 分钟；为了获取天气，Isu 会将经纬度和所选温度单位通过 HTTPS 发送给 Open-Meteo。
 
 ## 二、我们不会做什么
 
@@ -76,11 +83,12 @@ Chrome 历史本身由 Chrome 管理。Isu 不提供删除 Chrome 历史的功�
 
 - `storage`：保存设置、同步状态和本地数据；
 - `unlimitedStorage`：保存本地壁纸、缓存图片和较大的 IndexedDB 数据；
-- `search`：使用 Chrome 当前选择的默认搜索引擎；
+- `search`：在当前标签页使用用户在 Isu 中选择的 Google 或 Bing 搜索引擎；
 - `favicon`：显示快捷方式网站的图标；
 - `contextMenus`：在 Chrome 原生右键菜单中提供 Isu 操作；
+- `geolocation`：仅在用户主动启用天气组件或点击位置重试时读取当前位置，用于向 Open-Meteo 请求天气；
 - `history`（可选）：仅在用户主动授权后读取 Chrome 浏览历史中的搜索结果页；
-- Wallhaven、Unsplash、Google Suggest、一言和 ZenQuotes 的网站权限：分别用于壁纸搜索、壁纸显示/跟踪、搜索建议和每日一语。
+- Wallhaven、Unsplash、Google Suggest、Bing、Open-Meteo、OpenStreetMap Nominatim、一言和 ZenQuotes 的网站权限：分别用于壁纸搜索、壁纸显示/跟踪、搜索建议、天气、城市名称和每日一语。
 
 ## 五、数据安全
 
@@ -91,8 +99,11 @@ Isu 使用 HTTPS 访问在线服务，并通过浏览器提供的本地存储和
 Isu 可能连接以下第三方服务：
 
 - [Google Suggest](https://suggestqueries.google.com/)
+- [Bing](https://www.bing.com/)
 - [Wallhaven](https://wallhaven.cc/)
 - [Unsplash](https://unsplash.com/)
+- [Open-Meteo](https://open-meteo.com/)
+- [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/)
 - [一言（Hitokoto）](https://hitokoto.cn/)
 - [ZenQuotes](https://zenquotes.io/)
 
@@ -105,4 +116,3 @@ Isu 可能连接以下第三方服务：
 ## 八、联系我们
 
 隐私问题或数据请求请联系：**3039213175@qq.com**。
-

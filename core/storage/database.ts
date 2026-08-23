@@ -11,6 +11,8 @@ import type {
   SyncMetadata,
   SyncMode,
 } from '../domain/types';
+import type { WeatherPreferences } from '../weather/preferences';
+import type { WeatherCache } from '../weather/cache';
 import type { Piece } from '../domain/pieces';
 import type { SearchHistoryEntry } from '../search/history';
 
@@ -21,8 +23,8 @@ interface NewTabDatabase extends DBSchema {
   assets: { key: string; value: AssetRecord };
   cursors: { key: string; value: ProviderCursor };
   settings: {
-    key: 'deviceIdentity' | 'syncMode' | 'searchHistory' | 'searchHistorySource' | 'appLanguage';
-    value: DeviceIdentity | SyncMode | SearchHistoryEntry[] | SearchHistorySource | AppLanguage;
+    key: 'deviceIdentity' | 'syncMode' | 'searchHistory' | 'searchHistorySource' | 'appLanguage' | 'weatherPreferences' | 'weatherCache';
+    value: DeviceIdentity | SyncMode | SearchHistoryEntry[] | SearchHistorySource | AppLanguage | WeatherPreferences | WeatherCache;
   };
   checkpoints: { key: string; value: SyncCheckpoint };
   pieces: { key: string; value: Piece };

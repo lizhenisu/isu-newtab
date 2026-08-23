@@ -3,6 +3,7 @@ import { createInitialConfig } from '../../core/domain/defaults';
 import { appConfigSchema, syncEnvelopeSchema } from '../../core/domain/schema';
 import { createDefaultWidgetLayout, resolveWidgetLayout, snapGridCoordinate, SYSTEM_WIDGET_IDS } from '../../core/domain/widgets';
 import { createEnvelope } from '../../core/sync/engine';
+import { migrateAppConfig } from '../../core/domain/migration';
 
 describe('dashboard component layout', () => {
   it('contains every registered component in the default order', () => {
@@ -44,6 +45,14 @@ describe('dashboard component layout', () => {
     expect(layout.find((item) => item.id === 'greeting')?.position.width).toBe(8);
     expect(layout.find((item) => item.id === 'search')?.position.width).toBe(20);
     expect(layout.find((item) => item.id === 'dailyQuote')?.position.width).toBe(16);
+  });
+
+  it('adds the weather component hidden when upgrading an existing layout', () => {
+    const config = createInitialConfig({ deviceId: 'weather-upgrade', counter: 0, epoch: 0 });
+    config.appearance.widgetLayout.value = config.appearance.widgetLayout.value.filter((item) => item.id !== 'weather');
+
+    const migrated = migrateAppConfig(config);
+    expect(migrated.appearance.widgetLayout.value.find((item) => item.id === 'weather')).toMatchObject({ enabled: false, sizePreset: 'medium' });
   });
 
   it('keeps a snapped coordinate stable around a neighboring-cell boundary', () => {

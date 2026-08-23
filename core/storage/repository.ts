@@ -31,8 +31,8 @@ import {
 } from '../domain/desktop';
 import { executeDesktopCommand, nearestDesktopVacancy } from '../layout/desktop-lifecycle';
 import { collisionRectFor, collisionRectsOverlap, type DesktopCollisionGeometry } from '../layout/desktop-collision';
-import { WIDGET_SIZE_PRESETS, type SystemWidgetId, type WidgetPosition } from '../domain/widgets';
-import { createDefaultPieces, isPiecePositionValid, pieceFingerprint, piecePositionsOverlap, searchPercentToPieceWidth, type Piece, type PiecePosition, type PieceSnapshot } from '../domain/pieces';
+import { SYSTEM_WIDGET_IDS, WIDGET_SIZE_PRESETS, type SystemWidgetId, type WidgetPosition } from '../domain/widgets';
+import { createDefaultPieces, isPiecePositionValid, pieceFingerprint, piecePositionForWidget, piecePositionsOverlap, searchPercentToPieceWidth, type Piece, type PiecePosition, type PieceSnapshot } from '../domain/pieces';
 import type { AppUnitOfWork, AssetRepository, BackupRepository, ConfigRepository, SyncRepository } from './ports';
 
 type Listener = () => void;
@@ -91,7 +91,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
         await transaction.objectStore('assets').clear();
         await transaction.objectStore('cursors').clear();
         await transaction.objectStore('checkpoints').clear();
-        for (const key of ['searchHistory', 'searchHistorySource', 'appLanguage', 'syncMode'] as const) {
+        for (const key of ['searchHistory', 'searchHistorySource', 'appLanguage', 'weatherPreferences', 'weatherCache', 'syncMode'] as const) {
           await transaction.objectStore('settings').delete(key);
         }
         identity.epoch += 1;
@@ -105,7 +105,9 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
         await transaction.objectStore('pieces').put(piece);
       }
     } else {
+      const previousWidgetLayout = JSON.stringify(config.appearance.widgetLayout.value);
       config = migrateAppConfig(config);
+      const widgetDefaultsChanged = previousWidgetLayout !== JSON.stringify(config.appearance.widgetLayout.value);
       const migration = migrateDesktopPositions(config);
       config = migration.config;
       for (const id of migration.changedShortcuts) {
@@ -118,11 +120,14 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
         group.revision = nextRevision(identity, group.revision);
         await transaction.objectStore('outbox').put(outboxEntry('group', id, group.revision, 'upsert'));
       }
-      if (migration.widgetLayoutChanged) {
+      if (migration.widgetLayoutChanged || widgetDefaultsChanged) {
         config.appearance.widgetLayout.revision = nextRevision(identity, config.appearance.widgetLayout.revision);
         await transaction.objectStore('outbox').put(outboxEntry('appearance', 'widgetLayout', config.appearance.widgetLayout.revision, 'upsert'));
       }
       await transaction.objectStore('config').put(config, 'current');
+    }
+    for (const entry of await ensureSystemPieces(transaction.objectStore('pieces'), config, identity)) {
+      await transaction.objectStore('outbox').put(entry);
     }
     let metadata = await transaction.objectStore('metadata').get('current');
     if (!metadata) {
@@ -1051,6 +1056,29 @@ function mirrorPiecePositions(config: AppConfig, pieces: Piece[]): void {
 }
 
 type PieceStore = { getAll(): Promise<Piece[]>; put(value: Piece): Promise<unknown> };
+
+async function ensureSystemPieces(store: PieceStore, config: AppConfig, identity: DeviceIdentity): Promise<OutboxEntry[]> {
+  const existing = new Set((await store.getAll()).map((piece) => piece.id));
+  const entries: OutboxEntry[] = [];
+  for (const widgetId of SYSTEM_WIDGET_IDS) {
+    const id = `piece:widget:${widgetId}`;
+    if (existing.has(id)) continue;
+    const widget = config.appearance.widgetLayout.value.find((item) => item.id === widgetId);
+    const sizePreset = widget?.sizePreset ?? 'medium';
+    const piece: Piece = {
+      id,
+      kind: 'system-widget',
+      payloadRef: widgetId,
+      container: widget?.enabled ? { kind: 'desktop' } : { kind: 'hidden' },
+      position: piecePositionForWidget(widgetId, sizePreset, config.appearance.search.value.widthPercent),
+      sizePreset,
+      revision: nextRevision(identity, { counter: 0, deviceId: 'system-widget-default' }),
+    };
+    await store.put(piece);
+    entries.push(outboxEntry('piece', piece.id, piece.revision, 'upsert'));
+  }
+  return entries;
+}
 
 async function syncSystemPieces(store: PieceStore, config: AppConfig, identity: DeviceIdentity): Promise<OutboxEntry[]> {
   const pieces = await store.getAll();

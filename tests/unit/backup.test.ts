@@ -60,6 +60,7 @@ describe('backup import', () => {
     const payload = JSON.parse(strFromU8(files['config.json']!));
     expect(payload).not.toHaveProperty('metadata');
     expect(JSON.stringify(payload)).not.toContain('tombstones');
+    expect(JSON.stringify(payload)).not.toContain('weatherCache');
   });
 
   it('rejects a ZIP entry marked as a symbolic link', async () => {

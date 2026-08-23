@@ -56,6 +56,7 @@ export const PIECE_SIZE_PRESETS: Record<SystemWidgetId | Exclude<PieceKind, 'sys
   focusTimer: { small: { width: 10, height: 5 }, medium: { width: 14, height: 6 }, large: { width: 18, height: 7 } },
   search: { small: { width: 24, height: 2 }, medium: { width: 24, height: 2 }, large: { width: 24, height: 2 } },
   quickNote: { small: { width: 16, height: 5 }, medium: { width: 28, height: 7 }, large: { width: 36, height: 9 } },
+  weather: { small: { width: 12, height: 4 }, medium: { width: 16, height: 5 }, large: { width: 20, height: 6 } },
   dailyQuote: { small: { width: 12, height: 2 }, medium: { width: 16, height: 2 }, large: { width: 20, height: 3 } },
   'shortcut': { small: { width: 4, height: 3 }, medium: { width: 4, height: 3 }, large: { width: 4, height: 3 } },
   'folder': { small: { width: 4, height: 3 }, medium: { width: 4, height: 3 }, large: { width: 4, height: 3 } },
@@ -77,6 +78,7 @@ export function piecePositionForWidget(widgetId: SystemWidgetId, sizePreset: Wid
     focusTimer: { x: -size.width / 2, y: 6 },
     search: { x: -size.width / 2, y: 12 },
     quickNote: { x: -size.width / 2, y: 14 },
+    weather: { x: -size.width / 2, y: 26 },
     dailyQuote: { x: -size.width / 2, y: 24 },
   };
   return { ...defaults[widgetId], ...size };
@@ -111,10 +113,10 @@ export function pieceFingerprint(pieces: Piece[]): string {
 }
 
 export function createDefaultPieces(identity: Revision, searchPercent = 50): Piece[] {
-  const system: SystemWidgetId[] = ['clock', 'greeting', 'focusTimer', 'search', 'quickNote', 'dailyQuote'];
+  const system: SystemWidgetId[] = ['clock', 'greeting', 'focusTimer', 'search', 'quickNote', 'dailyQuote', 'weather'];
   const pieces: Piece[] = system.map((widgetId) => {
     const sizePreset: WidgetSizePreset = 'medium';
-    return { id: `piece:widget:${widgetId}`, kind: 'system-widget', payloadRef: widgetId, container: { kind: 'desktop' }, position: piecePositionForWidget(widgetId, sizePreset, searchPercent), sizePreset, revision: identity };
+    return { id: `piece:widget:${widgetId}`, kind: 'system-widget', payloadRef: widgetId, container: widgetId === 'weather' ? { kind: 'hidden' } : { kind: 'desktop' }, position: piecePositionForWidget(widgetId, sizePreset, searchPercent), sizePreset, revision: identity };
   });
   pieces.push({ id: 'piece:add-shortcut', kind: 'add-shortcut', payloadRef: 'add-shortcut', container: { kind: 'desktop' }, position: { x: 10, y: 24, width: 4, height: 3 }, revision: identity });
   return pieces;

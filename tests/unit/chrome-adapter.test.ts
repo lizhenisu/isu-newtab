@@ -85,7 +85,7 @@ describe('ChromeSyncAdapter', () => {
     const pulled = await adapter.pull();
 
     expect(pulled?.config.appearance.widgetLayout.value.map((item) => item.id)).toEqual([
-      'clock', 'greeting', 'focusTimer', 'search', 'quickNote', 'dailyQuote', 'addShortcut',
+      'clock', 'greeting', 'focusTimer', 'search', 'quickNote', 'weather', 'dailyQuote', 'addShortcut',
     ]);
   });
 

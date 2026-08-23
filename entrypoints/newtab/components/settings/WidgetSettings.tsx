@@ -1,8 +1,9 @@
-import { t } from '../../../../core/browser/i18n';
+import { currentLanguageTag, t } from '../../../../core/browser/i18n';
 import { createDefaultWidgetLayout, resolveWidgetLayout, type SystemWidgetId, type WidgetId, type WidgetLayout } from '../../../../core/domain/widgets';
 import { useAppStore } from '../../../../core/state/store';
 import { useEffect, useState } from 'react';
 import { WIDGET_REGISTRY } from '../../widgets/registry';
+import { requestWeatherLocation } from '../../../../core/weather/location';
 
 export function WidgetSettings() {
   const storedLayout = useAppStore((state) => state.config!.appearance.widgetLayout.value);
@@ -20,6 +21,9 @@ export function WidgetSettings() {
   };
   const toggle = (id: WidgetId) => {
     const enabled = !layout.find((item) => item.id === id)?.enabled;
+    // Keep location reads tied to this explicit user action even though the
+    // extension capability itself is granted through the manifest.
+    if (id === 'weather' && enabled) void requestWeatherLocation(currentLanguageTag()).catch(() => undefined);
     setLayout((current) => current.map((item) => item.id === id ? { ...item, enabled } : item));
     return setWidgetEnabled(id as SystemWidgetId, enabled);
   };

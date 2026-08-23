@@ -7,6 +7,7 @@ import { FocusTimer } from '../components/FocusTimer';
 import { GreetingWidget } from '../components/GreetingWidget';
 import { QuickNote } from '../components/QuickNote';
 import { SearchWidget } from '../components/SearchWidget';
+import { WeatherWidget } from '../components/WeatherWidget';
 
 export type DashboardWidgetContext = {
   now: Date;
@@ -38,4 +39,5 @@ export const WIDGET_REGISTRY: Record<SystemWidgetId, WidgetDefinition> = {
   search: { id: 'search', labelKey: 'widgetSearch', render: (context) => <SearchWidget preferences={context.searchPreferences} historySource={context.searchHistorySource} /> },
   quickNote: { id: 'quickNote', labelKey: 'quickNote', render: () => <QuickNote /> },
   dailyQuote: { id: 'dailyQuote', labelKey: 'widgetDailyQuote', render: ({ now }) => <DailyQuote now={now} /> },
+  weather: { id: 'weather', labelKey: 'widgetWeather', render: () => <WeatherWidget /> },
 };

@@ -1,4 +1,4 @@
-import { act, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { browser } from 'wxt/browser';
 import { createInitialConfig } from '../../core/domain/defaults';
@@ -12,7 +12,7 @@ import {
 import { registerDesktopContextMenus } from '../../core/browser/context-menu-controller';
 import { DashboardBoard } from '../../entrypoints/newtab/widgets/DashboardBoard';
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe('native desktop context menu', () => {
   it('maps desktop target kinds to only their valid native commands', () => {

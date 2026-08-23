@@ -6,7 +6,7 @@ export default defineConfig({
     name: '__MSG_extensionName__',
     description: '__MSG_extensionDescription__',
     default_locale: 'zh_CN',
-    permissions: ['storage', 'unlimitedStorage', 'search', 'favicon', 'contextMenus'],
+    permissions: ['storage', 'unlimitedStorage', 'search', 'favicon', 'contextMenus', 'geolocation'],
     optional_permissions: ['history'],
     icons: {
       16: 'icons/isu-16.png',
@@ -24,6 +24,8 @@ export default defineConfig({
       'https://www.bing.com/AS/*',
       'https://v1.hitokoto.cn/*',
       'https://zenquotes.io/*',
+      'https://api.open-meteo.com/*',
+      'https://nominatim.openstreetmap.org/*',
     ],
     chrome_url_overrides: {
       newtab: 'newtab.html',

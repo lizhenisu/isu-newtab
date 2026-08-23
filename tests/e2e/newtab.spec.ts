@@ -3,6 +3,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+declare global {
+  interface Window {
+    __weatherLocationRequestCalls?: () => number;
+  }
+}
+
 let context: BrowserContext | undefined;
 let profile: string;
 
@@ -37,8 +43,10 @@ test('loads the extension, creates a shortcut, and persists it after reload', as
   const manifest = await serviceWorker.evaluate(() => chrome.runtime.getManifest());
   expect(manifest.permissions).toContain('contextMenus');
   expect(manifest.permissions).not.toContain('history');
+  expect(manifest.permissions).toContain('geolocation');
   expect(manifest.optional_permissions).toContain('history');
-  expect(manifest.host_permissions).toEqual(expect.arrayContaining(['https://v1.hitokoto.cn/*', 'https://zenquotes.io/*', 'https://www.bing.com/AS/*']));
+  expect(manifest.optional_permissions).not.toContain('geolocation');
+  expect(manifest.host_permissions).toEqual(expect.arrayContaining(['https://v1.hitokoto.cn/*', 'https://zenquotes.io/*', 'https://www.bing.com/AS/*', 'https://api.open-meteo.com/*', 'https://nominatim.openstreetmap.org/*']));
   expect(JSON.stringify(manifest)).not.toContain('lens.google.com');
   expect(manifest.icons).toMatchObject({ 16: 'icons/isu-16.png', 32: 'icons/isu-32.png', 48: 'icons/isu-48.png', 128: 'icons/isu-128.png' });
   const page = await context.newPage();
@@ -124,6 +132,77 @@ test('uses the selected engine for text and visual search in the current tab', a
   await context.route('https://www.bing.com/images**', (route) => route.fulfill({ contentType: 'text/html', body: '<title>Bing Images</title>' }));
   await page.getByRole('button', { name: /Open Bing Images|打开 Bing 图片搜索/ }).click();
   await expect(page).toHaveURL(/https:\/\/www\.bing\.com\/images\?setlang=/);
+});
+
+test('keeps weather hidden until enabled, then requests local location and loads Open-Meteo weather', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  await context.addInitScript(() => {
+    let calls = 0;
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback) {
+          calls += 1;
+          success({ coords: { latitude: 31.23, longitude: 121.47 } } as GeolocationPosition);
+        },
+      },
+    });
+    Object.defineProperty(window, '__weatherLocationRequestCalls', { configurable: true, value: () => calls });
+  });
+  const page = await context.newPage();
+  let forecastRequests = 0;
+  let cityRequests = 0;
+  await context.route('https://api.open-meteo.com/**', (route) => {
+    forecastRequests += 1;
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ current: { temperature_2m: 28, apparent_temperature: 30, weather_code: 2, is_day: 1 }, daily: { temperature_2m_max: [32], temperature_2m_min: [24], precipitation_probability_max: [40] } }) });
+  });
+  await context.route('https://nominatim.openstreetmap.org/**', (route) => {
+    cityRequests += 1;
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ address: { city: 'Shanghai' } }) });
+  });
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await expect(page.locator('[data-widget-id="weather"]')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__weatherLocationRequestCalls?.())).toBe(0);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  const weatherToggle = page.getByRole('checkbox', { name: /^Weather$|^天气$/ });
+  await expect(weatherToggle).not.toBeChecked();
+  await weatherToggle.check();
+  await expect.poll(() => page.evaluate(() => window.__weatherLocationRequestCalls?.())).toBe(1);
+  await expect(page.locator('[data-widget-id="weather"]')).toBeVisible();
+  await expect(page.getByText(/Partly cloudy|少云/)).toBeVisible();
+  await expect(page.getByText('Shanghai', { exact: true })).toBeVisible();
+  await expect.poll(() => cityRequests).toBe(1);
+  expect(forecastRequests).toBe(1);
+  const weatherCard = page.locator('.weatherWidget').filter({ hasText: 'Shanghai' });
+  const weatherRects = await weatherCard.evaluate((element) => {
+    const rect = (selector: string) => (element.querySelector(selector) as HTMLElement).getBoundingClientRect();
+    const location = rect('.weatherLocationName');
+    const temperature = rect('.weatherTemperature');
+    const attribution = rect('.weatherAttribution');
+    return { location, temperature, attribution };
+  });
+  expect(weatherRects.location.bottom).toBeLessThanOrEqual(weatherRects.temperature.top);
+  expect(weatherRects.temperature.bottom).toBeLessThanOrEqual(weatherRects.attribution.top);
+  const secondPage = await context.newPage();
+  await secondPage.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await expect(secondPage.getByText('Shanghai', { exact: true })).toBeVisible();
+  expect(forecastRequests).toBe(1);
+  expect(cityRequests).toBe(1);
+  await expect.poll(() => page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    return await new Promise<unknown>((resolve, reject) => {
+      const request = database.transaction('settings').objectStore('settings').get('weatherPreferences');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  })).toMatchObject({ units: 'auto', location: { latitude: 31.23, longitude: 121.47 } });
 });
 
 test('uses Bing suggestions without requesting Google and preserves local history on failure', async () => {

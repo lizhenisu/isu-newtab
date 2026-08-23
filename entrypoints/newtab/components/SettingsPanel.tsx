@@ -8,6 +8,7 @@ import { WallpaperSettings } from './settings/WallpaperSettings';
 import { WidgetSettings } from './settings/WidgetSettings';
 import { LanguageSettings } from './settings/LanguageSettings';
 import { SoftwareInfoSettings } from './settings/SoftwareInfoSettings';
+import { WeatherSettings } from './settings/WeatherSettings';
 import type { AppLanguage, SearchHistorySource } from '../../../core/domain/types';
 
 type Props = {
@@ -25,6 +26,7 @@ export function SettingsPanel({ language, onLanguageChange, searchHistorySource,
         <AppearanceSettings />
         <LanguageSettings language={language} onChange={onLanguageChange} />
         <WidgetSettings />
+        <WeatherSettings />
         <SearchSettings historySource={searchHistorySource} onHistorySourceChange={onSearchHistorySourceChange} />
         <WallpaperSettings />
         <SyncSettings />
