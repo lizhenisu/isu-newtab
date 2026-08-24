@@ -16,7 +16,7 @@ type Props = {
 export function FolderDialog({ folder, shortcuts, onClose }: Props) {
   const ordered = useMemo(() => [...shortcuts].sort(compareBySortKey), [shortcuts]);
   return <Modal title={folder.name} onClose={onClose} showCloseButton={false}>
-    <div className="folderSurface">
+    <div className="folderSurface" data-folder-context-id={folder.id}>
         <p className="folderDragHint">{t('folderDragHint')}</p>
         <div className="folderDialogGrid">
           {ordered.map((shortcut) => <FolderMember key={shortcut.id} shortcut={shortcut} />)}
@@ -32,6 +32,7 @@ function FolderMember({ shortcut }: { shortcut: Shortcut }) {
   const droppable = useDroppable({ id: `folder-item:${shortcut.id}` });
   return <article ref={(node) => { draggable.setNodeRef(node); droppable.setNodeRef(node); }} className={`folderDialogItem ${draggable.isDragging ? 'isDragging' : ''}`}
     data-drag-click-key={dragId}
+    data-folder-shortcut-id={shortcut.id}
     style={{ transform: CSS.Translate.toString(draggable.transform) }}
     onPointerDown={(event) => draggable.listeners?.onPointerDown?.(event)}>
     <a href={shortcut.url} className="desktopShortcut" aria-label={shortcut.name}>

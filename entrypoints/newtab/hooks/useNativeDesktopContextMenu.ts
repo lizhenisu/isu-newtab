@@ -66,7 +66,14 @@ export function useNativeDesktopContextMenu(
 
 export function targetFromPointer(event: Pick<PointerEvent, 'target' | 'clientX' | 'clientY'>, board: HTMLDivElement | null, items: DesktopItem[]): DesktopContextTarget {
   const element = event.target instanceof Element ? event.target : undefined;
-  if (!board || !element || !board.contains(element)) return { kind: 'none' };
+  if (!element) return { kind: 'none' };
+  const folderMember = element.closest<HTMLElement>('[data-folder-shortcut-id]');
+  const folderContents = element.closest<HTMLElement>('[data-folder-context-id]');
+  const groupId = folderContents?.dataset.folderContextId;
+  const shortcutId = folderMember?.dataset.folderShortcutId;
+  if (shortcutId && groupId) return { kind: 'folder-shortcut', shortcutId, groupId };
+  if (groupId) return { kind: 'folder-contents', groupId };
+  if (!board || !board.contains(element)) return { kind: 'none' };
   const cell = element.closest<HTMLElement>('[data-desktop-key]');
   const key = cell?.dataset.desktopKey;
   const item = key ? items.find((candidate) => candidate.key === key) : undefined;

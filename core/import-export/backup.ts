@@ -141,6 +141,7 @@ function remapImportedConfig(
       theme: { value: imported.appearance.theme.value, revision: nextRevision(identity) },
       blur: { value: imported.appearance.blur.value, revision: nextRevision(identity) },
       cardSize: { value: imported.appearance.cardSize.value, revision: nextRevision(identity) },
+      solidColor: { value: imported.appearance.solidColor.value, revision: nextRevision(identity) },
       wallpaper: { value: wallpaper, revision: nextRevision(identity) },
       widgetLayout: { value: structuredClone(imported.appearance.widgetLayout.value), revision: nextRevision(identity) },
       search: { value: structuredClone(imported.appearance.search.value), revision: nextRevision(identity) },

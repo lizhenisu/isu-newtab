@@ -179,7 +179,8 @@
 .modal--drawer .wallpaperChoices { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .modal--drawer .colorChoice,
 .modal--drawer .builtinPreview,
-.modal--drawer .wallpaperUploadChoice {
+.modal--drawer .wallpaperUploadChoice,
+.modal--drawer .wallpaperRandomChoice {
   position: relative;
   min-height: 68px;
   overflow: hidden;
@@ -196,10 +197,15 @@
 .modal--drawer .builtinPreview.aurora:hover { background: radial-gradient(circle at 24% 22%, #8ef0c5 0 8%, transparent 28%), linear-gradient(140deg,#173d59 4%,#247f72 47%,#725bd5); }
 .modal--drawer .builtinPreview.dusk:hover { background: linear-gradient(135deg,#6d275f,#e8906e); }
 .modal--drawer .builtinPreview.ocean:hover { background: linear-gradient(150deg,#031d3d 0%,#086d99 52%,#69d5d0 100%); }
-.modal--drawer .wallpaperUploadChoice { color: #3c4043; background: #f8fafd; }
+.modal--drawer .wallpaperUploadChoice,
+.modal--drawer .wallpaperRandomChoice { color: #3c4043; background: #f8fafd; }
+.modal--drawer .wallpaperRandomChoice { background: linear-gradient(135deg, #1a73e8, #7baaf7); color: #fff; }
 .modal--drawer .colorChoice.active,
 .modal--drawer .builtinPreview.active,
-.modal--drawer .wallpaperUploadChoice.active { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,.12); }
+.modal--drawer .wallpaperUploadChoice.active,
+.modal--drawer .wallpaperRandomChoice.active { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,.12); }
+.modal--drawer .randomWallpaperControls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; padding: 12px; border: 1px solid #e8eaed; border-radius: 12px; background: #f8fafd; }
+.modal--drawer .randomWallpaperControls small { grid-column: 1 / -1; color: #5f6368; }
 
 .modal--drawer .wallhavenPicker { gap: 12px; }
 .modal--drawer .categoryChoices { flex-wrap: wrap; gap: 8px 16px; }
@@ -244,6 +250,16 @@
 .modal--drawer .softwareInfoList dd { min-width: 0; margin: 0; color: #202124; font-size: 13px; text-align: right; }
 .modal--drawer .softwareInfoList a { overflow-wrap: anywhere; color: #1a73e8; text-decoration: none; }
 .modal--drawer .softwareInfoList a:hover { text-decoration: underline; }
+.modal--drawer .thirdPartyServicesSettings { gap: 16px !important; }
+.modal--drawer .thirdPartyServiceGroup { display: grid; gap: 8px; }
+.modal--drawer .thirdPartyServiceGroup h4 { margin: 0; color: #3c4043; font-size: 13px; font-weight: 600; }
+.modal--drawer .thirdPartyServiceList { display: grid; gap: 0; margin: 0; border: 1px solid #e0e3e7; border-radius: 12px; overflow: hidden; }
+.modal--drawer .thirdPartyServiceList > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 12px; min-height: 48px; padding: 8px 13px; border-bottom: 1px solid #eef0f2; }
+.modal--drawer .thirdPartyServiceList > div:last-child { border-bottom: 0; }
+.modal--drawer .thirdPartyServiceList dt { min-width: 0; color: #5f6368; font-size: 13px; }
+.modal--drawer .thirdPartyServiceList dd { min-width: 0; margin: 0; color: #202124; font-size: 13px; text-align: right; }
+.modal--drawer .thirdPartyServiceList a { overflow-wrap: anywhere; color: #1a73e8; text-decoration: none; }
+.modal--drawer .thirdPartyServiceList a:hover { text-decoration: underline; }
 .modal--drawer .backupActionGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .modal--drawer .backupActionGrid button:first-child { border-color: #1a73e8; color: #fff; background: #1a73e8; }
 .modal--drawer .backupActionGrid button:first-child:hover { border-color: #1765cc; background: #1765cc; }

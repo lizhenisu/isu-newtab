@@ -10,7 +10,7 @@ type LegacyConfig = {
   datasetId?: string;
   updatedAt?: string;
   shortcuts?: Array<{ id?: string; name?: string; url?: string; icon?: string }>;
-  appearance?: { theme?: string; blur?: number; cardSize?: string };
+  appearance?: { theme?: string; blur?: number; cardSize?: string; solidColor?: string };
   wallpaper?: { type?: string; color?: string };
 };
 
@@ -43,6 +43,7 @@ export function migrateAppConfig(input: unknown): AppConfig {
       theme: { value: ['light', 'dark', 'system'].includes(legacy.appearance?.theme ?? '') ? legacy.appearance!.theme : 'system', revision: revision(shortcuts.length + 2) },
       blur: { value: Math.max(0, Math.min(40, legacy.appearance?.blur ?? 18)), revision: revision(shortcuts.length + 3) },
       cardSize: { value: ['small', 'medium', 'large'].includes(legacy.appearance?.cardSize ?? '') ? legacy.appearance!.cardSize : 'medium', revision: revision(shortcuts.length + 4) },
+      solidColor: { value: /^#[0-9a-f]{6}$/i.test(legacy.appearance?.solidColor ?? '') ? legacy.appearance!.solidColor! : wallpaper.color, revision: revision(shortcuts.length + 5) },
       wallpaper: { value: wallpaper, revision: revision(shortcuts.length + 5) },
       widgetLayout: { value: createDefaultWidgetLayout(), revision: revision(shortcuts.length + 6) },
       search: { value: { ...DEFAULT_SEARCH_PREFERENCES }, revision: revision(shortcuts.length + 7) },

@@ -9,6 +9,7 @@ import { WidgetSettings } from './settings/WidgetSettings';
 import { LanguageSettings } from './settings/LanguageSettings';
 import { SoftwareInfoSettings } from './settings/SoftwareInfoSettings';
 import { WeatherSettings } from './settings/WeatherSettings';
+import { ThirdPartyServicesSettings } from './settings/ThirdPartyServicesSettings';
 import type { AppLanguage, SearchHistorySource } from '../../../core/domain/types';
 
 type Props = {
@@ -32,6 +33,7 @@ export function SettingsPanel({ language, onLanguageChange, searchHistorySource,
         <SyncSettings />
         <BackupSettings />
         <SoftwareInfoSettings />
+        <ThirdPartyServicesSettings />
       </div>
     </Modal>
   );

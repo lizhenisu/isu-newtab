@@ -14,7 +14,7 @@ export type DashboardWidgetContext = {
   config: AppConfig;
   searchPreferences: SearchPreferences;
   searchHistorySource: SearchHistorySource;
-  onAddShortcut(position?: WidgetPosition): void;
+  onAddShortcut(request?: AddShortcutRequest): void;
   onAddGroup(position?: WidgetPosition): void;
   onEditShortcut(shortcut: Shortcut): void;
   onDeleteShortcut(id: string): Promise<void>;
@@ -24,6 +24,11 @@ export type DashboardWidgetContext = {
   onMoveGroup(id: string, beforeId?: string, afterId?: string): Promise<void>;
   onSetWidgetEnabled?(id: SystemWidgetId, enabled: boolean): Promise<void>;
   onSetWidgetSize?(id: SystemWidgetId, preset: import('../../../core/domain/widgets').WidgetSizePreset): Promise<void>;
+};
+
+export type AddShortcutRequest = {
+  position?: WidgetPosition;
+  groupId?: string;
 };
 
 type WidgetDefinition = {

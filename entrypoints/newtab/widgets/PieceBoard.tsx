@@ -42,7 +42,7 @@ export function PieceBoard({ pieces, context, onPiecesChanged }: Props) {
   const shown = preview
     ? preview.map((piece) => piece.id === activeDragId.current && dragging ? dragBaseRef.current.find((basePiece) => basePiece.id === piece.id) ?? piece : piece)
     : derivedPieces;
-  useNativeDesktopContextMenu(boardRef, useMemo(() => shown.filter((piece) => piece.container.kind === 'desktop' && piece.position).map((piece) => pieceToDesktopItem(piece, context)), [shown, context]), (action, target) => void handleContextAction(action, target, shown, context));
+  useNativeDesktopContextMenu(boardRef, useMemo(() => shown.filter((piece) => piece.container.kind === 'desktop' && piece.position).map((piece) => pieceToDesktopItem(piece, context)), [shown, context]), (action, target) => void handleContextAction(action, target, shown, context, setOpenFolderId));
   const rows = Math.max(18, ...shown.filter((piece) => piece.container.kind === 'desktop').map((piece) => (piece.position?.y ?? 0) + (piece.position?.height ?? 1))) + 2;
 
   const finish = async (event: DragEndEvent) => {
@@ -247,10 +247,23 @@ function pieceToDesktopItem(piece: Piece, context: DashboardWidgetContext): Desk
   return { kind: 'add-shortcut', key: 'add-shortcut', movable: true, revision: piece.revision, container: { kind: 'desktop' }, position } as unknown as DesktopItem;
 }
 
-async function handleContextAction(action: DesktopContextAction, target: DesktopContextTarget, pieces: Piece[], context: DashboardWidgetContext): Promise<void> {
-  const targetKey = target.kind === 'none' || target.kind === 'board' ? undefined : target.kind === 'add-shortcut' ? 'add-shortcut' : target.key;
+async function handleContextAction(action: DesktopContextAction, target: DesktopContextTarget, pieces: Piece[], context: DashboardWidgetContext, openFolder: (id: string) => void): Promise<void> {
+  if (target.kind === 'folder-shortcut') {
+    const shortcut = context.config.shortcuts.find((item) => item.id === target.shortcutId && item.groupId === target.groupId);
+    if (shortcut && action === 'edit') context.onEditShortcut(shortcut);
+    if (shortcut && action === 'delete') await context.onDeleteShortcut(shortcut.id);
+    return;
+  }
+  if (target.kind === 'folder-contents' && action === 'add-shortcut') {
+    if (context.config.groups.some((group) => group.id === target.groupId)) context.onAddShortcut({ groupId: target.groupId });
+    return;
+  }
+  const targetKey = target.kind === 'none' || target.kind === 'board' || target.kind === 'folder-contents'
+    ? undefined
+    : target.kind === 'add-shortcut' ? 'add-shortcut' : target.key;
   const piece = targetKey ? pieces.find((item) => pieceKey(item) === targetKey) : undefined;
   if (target.kind === 'board' && action === 'new-folder') return context.onAddGroup(target.position);
+  if (target.kind === 'board' && action === 'add-shortcut') return context.onAddShortcut({ position: target.position });
   if (target.kind === 'shortcut' && piece?.kind === 'shortcut') {
     const shortcut = context.config.shortcuts.find((item) => item.id === piece.payloadRef);
     if (shortcut && action === 'edit') context.onEditShortcut(shortcut);
@@ -258,7 +271,8 @@ async function handleContextAction(action: DesktopContextAction, target: Desktop
   }
   if (target.kind === 'folder' && piece?.kind === 'folder') {
     const group = context.config.groups.find((item) => item.id === piece.payloadRef);
-    if (group && action === 'open') return;
+    if (group && action === 'open') return openFolder(group.id);
+    if (group && action === 'add-shortcut') return context.onAddShortcut({ groupId: group.id });
     if (group && action === 'rename') context.onRenameGroup(group);
     if (group && action === 'delete') await context.onDeleteGroup(group);
   }

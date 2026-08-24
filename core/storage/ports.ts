@@ -14,6 +14,7 @@ import type {
 import type { DesktopCommit } from '../domain/desktop';
 import type { WidgetPosition } from '../domain/widgets';
 import type { Piece, PiecePosition, PieceSnapshot } from '../domain/pieces';
+import type { RandomWallpaperState } from '../wallpaper/random';
 
 export interface PieceRepository {
   getPieces(): Promise<Piece[]>;
@@ -44,6 +45,10 @@ export interface ConfigRepository {
   setWidgetEnabled(id: import('../domain/widgets').SystemWidgetId, enabled: boolean): Promise<void>;
   updateAppearance<K extends keyof AppConfig['appearance']>(key: K, value: AppConfig['appearance'][K]['value']): Promise<void>;
   setWallpaper(wallpaper: Wallpaper): Promise<void>;
+  setSolidWallpaper(color: string): Promise<void>;
+  getRandomWallpaperState(): Promise<RandomWallpaperState | undefined>;
+  saveRandomWallpaperState(state: RandomWallpaperState, blob: Blob): Promise<void>;
+  clearRandomWallpaperState(): Promise<void>;
   subscribe(listener: () => void): () => void;
 }
 

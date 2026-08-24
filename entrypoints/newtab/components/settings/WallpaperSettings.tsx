@@ -5,20 +5,27 @@ import { useAppStore } from '../../../../core/state/store';
 import { appRepositories } from '../../../../core/storage/repository';
 import { processWallpaperImage } from '../../../../core/wallpaper/image';
 import { searchWallhaven, type WallhavenPage } from '../../../../core/wallpaper/wallhaven';
-import { DEFAULT_SOLID_WALLPAPER_COLOR } from '../../../../core/domain/defaults';
 import { errorMessage } from './error-message';
 import { UnsplashPicker } from './UnsplashPicker';
+import { currentLanguageTag } from '../../../../core/browser/i18n';
+import type { Wallpaper, WallpaperRefreshInterval } from '../../../../core/domain/types';
+import type { RandomWallpaperState } from '../../../../core/wallpaper/random';
 
 export function WallpaperSettings() {
   const wallpaper = useAppStore((state) => state.config!.appearance.wallpaper.value);
   const setWallpaper = useAppStore((state) => state.setWallpaper);
+  const setSolidWallpaper = useAppStore((state) => state.setSolidWallpaper);
   const refresh = useAppStore((state) => state.refresh);
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
   const [onlineSource, setOnlineSource] = useState<'wallhaven' | 'unsplash'>('wallhaven');
-  const solidColor = wallpaper.type === 'solid' ? wallpaper.color : DEFAULT_SOLID_WALLPAPER_COLOR;
+  const solidColor = useAppStore((state) => state.config!.appearance.solidColor.value);
 
-  const selectSolidWallpaper = () => setWallpaper({ type: 'solid', color: solidColor });
+  const selectWallpaper = async (next: Wallpaper, action: 'activate' | 'reconcile' = 'reconcile') => {
+    await setWallpaper(next);
+    await browser.runtime.sendMessage({ type: action === 'activate' ? 'wallpaper:random:activate' : 'wallpaper:random:reconcile' }).catch(() => undefined);
+  };
+  const selectSolidWallpaper = () => void setSolidWallpaper(solidColor);
 
   const upload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -27,6 +34,7 @@ export function WallpaperSettings() {
       const image = await processWallpaperImage(file);
       await appRepositories.assets.setUploadedWallpaper(image);
       await refresh();
+      await browser.runtime.sendMessage({ type: 'wallpaper:random:reconcile' }).catch(() => undefined);
     } catch (reason) {
       setError(errorMessage(reason));
     } finally {
@@ -57,20 +65,22 @@ export function WallpaperSettings() {
             value={solidColor}
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => event.stopPropagation()}
-            onChange={(event) => setWallpaper({ type: 'solid', color: event.target.value })}
+            onChange={(event) => void setSolidWallpaper(event.target.value)}
           />
         </div>
-        {['aurora', 'dusk', 'ocean'].map((assetId) => <button key={assetId} type="button" aria-pressed={wallpaper.type === 'builtin' && wallpaper.assetId === assetId} className={`builtinPreview ${assetId} ${wallpaper.type === 'builtin' && wallpaper.assetId === assetId ? 'active' : ''}`} onClick={() => setWallpaper({ type: 'builtin', assetId })}>{t(assetId)}</button>)}
-        <button type="button" className={`secondary wallpaperUploadChoice ${wallpaper.type === 'upload' ? 'active' : ''}`} aria-pressed={wallpaper.type === 'upload'} onClick={() => fileInput.current?.click()}>{t('upload')}</button>
+        {['aurora', 'dusk', 'ocean'].map((assetId) => <button key={assetId} type="button" aria-pressed={wallpaper.type === 'builtin' && wallpaper.assetId === assetId} className={`builtinPreview ${assetId} ${wallpaper.type === 'builtin' && wallpaper.assetId === assetId ? 'active' : ''}`} onClick={() => void selectWallpaper({ type: 'builtin', assetId })}>{t(assetId)}</button>)}
+        <button type="button" className={`secondary wallpaperUploadChoice ${wallpaper.type === 'upload' ? 'active' : ''}`} aria-pressed={wallpaper.type === 'upload'} onClick={() => { void browser.runtime.sendMessage({ type: 'wallpaper:random:reconcile' }); fileInput.current?.click(); }}>{t('upload')}</button>
+        <button type="button" className={`secondary wallpaperRandomChoice ${wallpaper.type === 'wallhaven-random' ? 'active' : ''}`} aria-pressed={wallpaper.type === 'wallhaven-random'} onClick={() => void selectWallpaper({ type: 'wallhaven-random', interval: '1d' }, 'activate')}>{t('onlineRandom')}</button>
         <input ref={fileInput} type="file" accept="image/*" hidden onChange={upload} />
       </div>
+      {wallpaper.type === 'wallhaven-random' && <RandomWallpaperControls interval={wallpaper.interval} onIntervalChange={(interval) => selectWallpaper({ type: 'wallhaven-random', interval })} onRefresh={() => browser.runtime.sendMessage({ type: 'wallpaper:random:activate' })} />}
       <label>{t('onlineSource')}<select value={onlineSource} onChange={(event) => setOnlineSource(event.target.value as 'wallhaven' | 'unsplash')}><option value="wallhaven">Wallhaven</option><option value="unsplash">Unsplash</option></select></label>
       {onlineSource === 'wallhaven'
         ? <WallhavenPicker onSelect={async (item) => {
           await browser.runtime.sendMessage({ type: 'wallpaper:cache', url: item.path });
-          await setWallpaper({ type: 'wallhaven', imageUrl: item.path, sourceUrl: item.url, wallpaperId: item.id });
+          await selectWallpaper({ type: 'wallhaven', imageUrl: item.path, sourceUrl: item.url, wallpaperId: item.id });
         }} />
-        : <UnsplashPicker onSelect={(item) => setWallpaper({
+        : <UnsplashPicker onSelect={(item) => selectWallpaper({
           type: 'unsplash',
           imageUrl: item.imageUrl,
           sourceUrl: item.sourceUrl,
@@ -82,6 +92,22 @@ export function WallpaperSettings() {
       {error && <p className="errorText" role="alert">{error}</p>}
     </section>
   );
+}
+
+function RandomWallpaperControls({ interval, onIntervalChange, onRefresh }: { interval: WallpaperRefreshInterval; onIntervalChange(interval: WallpaperRefreshInterval): Promise<void>; onRefresh(): Promise<unknown> }) {
+  const [state, setState] = useState<RandomWallpaperState>();
+  useEffect(() => {
+    let active = true;
+    const load = () => appRepositories.config.getRandomWallpaperState().then((value) => { if (active) setState(value); });
+    void load();
+    return appRepositories.config.subscribe(() => void load());
+  }, []);
+  const updatedAt = state?.updatedAt ? new Intl.DateTimeFormat(currentLanguageTag(), { dateStyle: 'short', timeStyle: 'short' }).format(new Date(state.updatedAt)) : t('wallpaperLoading');
+  return <div className="randomWallpaperControls">
+    <label>{t('wallpaperFrequency')}<select value={interval} onChange={(event) => void onIntervalChange(event.target.value as WallpaperRefreshInterval)}><option value="1h">{t('wallpaperEveryHour')}</option><option value="5h">{t('wallpaperEveryFiveHours')}</option><option value="1d">{t('wallpaperEveryDay')}</option></select></label>
+    <button type="button" className="secondary" onClick={() => void onRefresh()}>{t('wallpaperChangeNow')}</button>
+    <small>{t('wallpaperLastUpdated')}: {updatedAt}</small>
+  </div>;
 }
 
 function WallhavenPicker({ onSelect }: { onSelect(item: WallhavenPage['items'][number]): Promise<void> }) {
@@ -138,6 +164,6 @@ function WallpaperStatus() {
     browser.storage.local.onChanged.addListener(listener);
     return () => browser.storage.local.onChanged.removeListener(listener);
   }, []);
-  if (status?.state !== 'error' || wallpaper?.type !== 'wallhaven') return null;
-  return <div className="wallpaperStatus"><small className="errorText">{status.message}</small><button type="button" className="secondary" onClick={() => browser.runtime.sendMessage({ type: 'wallpaper:cache', url: wallpaper.imageUrl })}>{t('retry')}</button></div>;
+  if (status?.state !== 'error' || (wallpaper?.type !== 'wallhaven' && wallpaper?.type !== 'wallhaven-random')) return null;
+  return <div className="wallpaperStatus"><small className="errorText">{status.message}</small><button type="button" className="secondary" onClick={() => browser.runtime.sendMessage(wallpaper.type === 'wallhaven-random' ? { type: 'wallpaper:random:activate' } : { type: 'wallpaper:cache', url: wallpaper.imageUrl })}>{t('retry')}</button></div>;
 }

@@ -42,6 +42,7 @@ test('loads the extension, creates a shortcut, and persists it after reload', as
   const extensionId = new URL(serviceWorker.url()).host;
   const manifest = await serviceWorker.evaluate(() => chrome.runtime.getManifest());
   expect(manifest.permissions).toContain('contextMenus');
+  expect(manifest.permissions).toContain('alarms');
   expect(manifest.permissions).not.toContain('history');
   expect(manifest.permissions).toContain('geolocation');
   expect(manifest.optional_permissions).toContain('history');
@@ -55,8 +56,9 @@ test('loads the extension, creates a shortcut, and persists it after reload', as
   await page.goto('chrome://newtab/');
   await expect.poll(() => page.url()).toContain(`chrome-extension://${extensionId}/newtab.html`);
   await expect(page).toHaveTitle(/New Tab|新标签页/);
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/chrome-new-tab.svg');
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', '/chrome-newtab.svg');
   await expect(page.getByRole('textbox', { name: /Search the web|搜索互联网/, exact: true })).toBeVisible();
+  await expect(page.locator('#quick-note')).toHaveCSS('min-height', '132px');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.getByRole('button', { name: /Add shortcut|添加快捷方式/ }).click();
   const dialog = page.getByRole('dialog');
@@ -167,11 +169,28 @@ test('keeps weather hidden until enabled, then requests local location and loads
   await expect(page.locator('[data-widget-id="weather"]')).toHaveCount(0);
   expect(await page.evaluate(() => window.__weatherLocationRequestCalls?.())).toBe(0);
   await page.getByRole('button', { name: /Settings|设置/ }).click();
+  const thirdPartyServices = page.getByRole('heading', { name: /Third-party services & attribution|第三方服务与署名/ });
+  await expect(thirdPartyServices).toBeVisible();
+  const thirdPartyServicesSection = thirdPartyServices.locator('..');
+  await expect(thirdPartyServicesSection.getByRole('heading', { name: /^Weather$|^天气$/ })).toBeVisible();
+  await expect(page.locator('.settings > section').last()).toHaveClass(/thirdPartyServicesSettings/);
+  for (const [name, href] of [
+    ['Open-Meteo', 'https://open-meteo.com/'],
+    ['Nominatim / OpenStreetMap', 'https://nominatim.openstreetmap.org/'],
+    ['OpenStreetMap contributors', 'https://www.openstreetmap.org/copyright'],
+  ] as const) {
+    const link = thirdPartyServicesSection.getByRole('link', { name });
+    await expect(link).toHaveAttribute('href', href);
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'noreferrer');
+  }
   const weatherToggle = page.getByRole('checkbox', { name: /^Weather$|^天气$/ });
   await expect(weatherToggle).not.toBeChecked();
   await weatherToggle.check();
   await expect.poll(() => page.evaluate(() => window.__weatherLocationRequestCalls?.())).toBe(1);
   await expect(page.locator('[data-widget-id="weather"]')).toBeVisible();
+  await expect(page.locator('[data-widget-id="weather"]')).toHaveCSS('grid-column', '20 / span 10');
+  await expect(page.locator('[data-widget-id="weather"]')).toHaveCSS('grid-row', '27 / span 3');
   await expect(page.getByText(/Partly cloudy|少云/)).toBeVisible();
   await expect(page.getByText('Shanghai', { exact: true })).toBeVisible();
   await expect.poll(() => cityRequests).toBe(1);
@@ -181,11 +200,12 @@ test('keeps weather hidden until enabled, then requests local location and loads
     const rect = (selector: string) => (element.querySelector(selector) as HTMLElement).getBoundingClientRect();
     const location = rect('.weatherLocationName');
     const temperature = rect('.weatherTemperature');
-    const attribution = rect('.weatherAttribution');
-    return { location, temperature, attribution };
+    const details = rect('.weatherDetails');
+    return { location, temperature, details, hasAttribution: Boolean(element.querySelector('.weatherAttribution')) };
   });
   expect(weatherRects.location.bottom).toBeLessThanOrEqual(weatherRects.temperature.top);
-  expect(weatherRects.temperature.bottom).toBeLessThanOrEqual(weatherRects.attribution.top);
+  expect(weatherRects.temperature.bottom).toBeLessThanOrEqual(weatherRects.details.top);
+  expect(weatherRects.hasAttribution).toBe(false);
   const secondPage = await context.newPage();
   await secondPage.goto(`chrome-extension://${extensionId}/newtab.html`);
   await expect(secondPage.getByText('Shanghai', { exact: true })).toBeVisible();
@@ -495,6 +515,211 @@ test('converts an uploaded wallpaper to local WebP without putting it in Chrome 
 
   const remoteText = await page.evaluate(async () => JSON.stringify(await chrome.storage.sync.get(null)));
   expect(remoteText).not.toContain('wallpaper/upload');
+});
+
+test('keeps online random wallpaper images local while syncing its interval setting', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  await context.route('https://wallhaven.cc/api/v1/search**', (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ data: [{ id: 'random-e2e', url: 'https://wallhaven.cc/w/random-e2e', thumbs: { large: 'https://th.wallhaven.cc/lg/ra/random-e2e.jpg' }, path: 'https://w.wallhaven.cc/full/ra/wallhaven-random-e2e.jpg' }], meta: { current_page: 1, last_page: 1 } }),
+  }));
+  await context.route('https://w.wallhaven.cc/full/ra/wallhaven-random-e2e.jpg', (route) => route.fulfill({
+    contentType: 'image/png',
+    body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JqJkAAAAASUVORK5CYII=', 'base64'),
+  }));
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  await page.getByRole('button', { name: /Online random|在线随机/ }).click();
+  const frequency = page.getByLabel(/Change frequency|切换频率/, { exact: true });
+  await expect(frequency).toHaveValue('1d');
+  await frequency.selectOption('5h');
+
+  await expect.poll(() => page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'settings', 'assets']);
+    const get = <T,>(store: string, key: string) => new Promise<T>((resolve, reject) => {
+      const request = transaction.objectStore(store).get(key);
+      request.onsuccess = () => resolve(request.result as T);
+      request.onerror = () => reject(request.error);
+    });
+    const [config, state, asset] = await Promise.all([
+      get<{ appearance: { wallpaper: { value: { type: string; interval?: string } } } }>('config', 'current'),
+      get<{ imageUrl?: string; interval?: string }>('settings', 'randomWallpaper'),
+      get<{ blob?: Blob }>('assets', 'wallpaper/random-current'),
+    ]);
+    return { wallpaper: config.appearance.wallpaper.value, state, hasImage: asset?.blob instanceof Blob };
+  })).toEqual({
+    wallpaper: { type: 'wallhaven-random', interval: '5h' },
+    state: expect.objectContaining({ imageUrl: 'https://w.wallhaven.cc/full/ra/wallhaven-random-e2e.jpg', interval: '5h' }),
+    hasImage: true,
+  });
+
+  await expect.poll(() => page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    return new Promise<number>((resolve, reject) => {
+      const request = database.transaction('outbox').objectStore('outbox').count();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }), { timeout: 12_000 }).toBe(0);
+  const remote = await page.evaluate(async () => JSON.stringify(await chrome.storage.sync.get(null)));
+  expect(remote).not.toContain('random-e2e.jpg');
+});
+
+test('keeps the final wallpaper selection when builtin choices change in sequence', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  const backdrop = page.locator('.wallpaperBackdrop');
+
+  for (const [label, identity] of [
+    [/Aurora|极光/, 'builtin:aurora'],
+    [/Dusk|暮色/, 'builtin:dusk'],
+    [/Ocean|海洋/, 'builtin:ocean'],
+  ] as const) {
+    await page.getByRole('button', { name: label }).click();
+    await expect(backdrop).toHaveAttribute('data-wallpaper-incoming', identity);
+    await expect.poll(() => backdrop.getAttribute('data-wallpaper-incoming'), { timeout: 3_000 }).toBeNull();
+    await expect(backdrop).toHaveAttribute('data-wallpaper-current', identity);
+    await expect(backdrop).not.toHaveAttribute('data-wallpaper-current', /fallback|pending/);
+  }
+});
+
+test('restores the remembered custom solid color after selecting another wallpaper', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  await page.locator('.colorChoice input[type="color"]').evaluate((input: HTMLInputElement) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '#4a7098');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await expect.poll(() => page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    return new Promise<{ color: string; solidColor: string }>((resolve, reject) => {
+      const request = database.transaction('config').objectStore('config').get('current');
+      request.onsuccess = () => resolve({
+        color: request.result.appearance.wallpaper.value.color,
+        solidColor: request.result.appearance.solidColor.value,
+      });
+      request.onerror = () => reject(request.error);
+    });
+  })).toEqual({ color: '#4a7098', solidColor: '#4a7098' });
+
+  await page.getByRole('button', { name: /Ocean|海洋/ }).click();
+  await page.locator('.colorChoice').click({ position: { x: 20, y: 20 } });
+  await expect.poll(() => page.evaluate(async () => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    return new Promise<unknown>((resolve, reject) => {
+      const request = database.transaction('config').objectStore('config').get('current');
+      request.onsuccess = () => resolve(request.result.appearance.wallpaper.value);
+      request.onerror = () => reject(request.error);
+    });
+  })).toEqual({ type: 'solid', color: '#4a7098' });
+});
+
+test('dissolves the incoming wallpaper across the full viewport', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  const backdrop = page.locator('.wallpaperBackdrop');
+  await page.getByRole('button', { name: /Dusk|暮色/ }).click();
+  await expect.poll(() => backdrop.getAttribute('data-wallpaper-current'), { timeout: 3_000 }).toBe('builtin:dusk');
+  await page.getByRole('button', { name: /Aurora|极光/ }).click();
+
+  await expect(backdrop).toHaveAttribute('data-wallpaper-incoming', 'builtin:aurora');
+  await page.waitForTimeout(80);
+  const opacities = await backdrop.evaluate((element) => {
+    const previous = element.querySelector<HTMLElement>('.wallpaperLayer--frozen');
+    const incoming = element.querySelector<HTMLElement>('.wallpaperLayer--current');
+    return {
+      previous: previous ? Number.parseFloat(getComputedStyle(previous).opacity) : undefined,
+      incoming: incoming ? Number.parseFloat(getComputedStyle(incoming).opacity) : undefined,
+      maskImage: incoming ? getComputedStyle(incoming).getPropertyValue('mask-image') : undefined,
+      animationName: incoming ? getComputedStyle(incoming).animationName : undefined,
+    };
+  });
+  expect(opacities.previous).toBe(1);
+  expect(opacities.incoming).toBeGreaterThan(0);
+  expect(opacities.incoming).toBeLessThan(1);
+  expect(opacities.maskImage).toBe('none');
+  expect(opacities.animationName).toBe('wallpaper-dissolve');
+});
+
+test('keeps the visible composition and restarts the full dissolve for rapid wallpaper changes', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.getByRole('button', { name: /Settings|设置/ }).click();
+  const backdrop = page.locator('.wallpaperBackdrop');
+
+  await page.getByRole('button', { name: /Dusk|暮色/ }).click();
+  await expect(backdrop).toHaveAttribute('data-wallpaper-incoming', 'builtin:dusk');
+  await expect.poll(() => backdrop.getAttribute('data-wallpaper-incoming'), { timeout: 3_000 }).toBeNull();
+  await page.getByRole('button', { name: /Aurora|极光/ }).click();
+  await expect(backdrop).toHaveAttribute('data-wallpaper-incoming', 'builtin:aurora');
+  await page.waitForTimeout(500);
+
+  await page.getByRole('button', { name: /Ocean|海洋/ }).click();
+  await expect(backdrop).toHaveAttribute('data-wallpaper-incoming', 'builtin:ocean');
+  const interrupted = await backdrop.evaluate((element) => {
+    const aurora = element.querySelector<HTMLElement>('[data-wallpaper-layer="builtin:aurora"]');
+    const ocean = element.querySelector<HTMLElement>('[data-wallpaper-layer="builtin:ocean"]');
+    return {
+      auroraOpacity: aurora ? Number.parseFloat(getComputedStyle(aurora).opacity) : undefined,
+      oceanOpacity: ocean ? Number.parseFloat(getComputedStyle(ocean).opacity) : undefined,
+      oceanAnimation: ocean ? getComputedStyle(ocean).animationName : undefined,
+      layers: element.querySelectorAll('.wallpaperLayer').length,
+    };
+  });
+  expect(interrupted.auroraOpacity).toBeGreaterThan(0);
+  expect(interrupted.auroraOpacity).toBeLessThan(1);
+  expect(interrupted.oceanOpacity).toBeLessThan(0.1);
+  expect(interrupted.oceanAnimation).toBe('wallpaper-dissolve');
+  expect(interrupted.layers).toBe(3);
+
+  await page.waitForTimeout(120);
+  const oceanOpacity = await page.locator('[data-wallpaper-layer="builtin:ocean"]').evaluate((element) => Number.parseFloat(getComputedStyle(element).opacity));
+  expect(oceanOpacity).toBeGreaterThan(0);
+  expect(oceanOpacity).toBeLessThan(1);
+  await expect.poll(() => backdrop.getAttribute('data-wallpaper-incoming'), { timeout: 3_000 }).toBeNull();
+  await expect(backdrop).toHaveAttribute('data-wallpaper-current', 'builtin:ocean');
+  await expect(backdrop.locator('.wallpaperLayer')).toHaveCount(1);
 });
 
 test('paints the saved wallpaper preview before application hydration', async () => {

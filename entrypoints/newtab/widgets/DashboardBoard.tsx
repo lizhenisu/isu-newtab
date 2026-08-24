@@ -368,7 +368,21 @@ export function DashboardBoard({ layout, context, onDesktopCommit, onWidgetEnabl
 
   const executeContextAction = async (action: DesktopContextAction, target: DesktopContextTarget) => {
     if (!isDesktopContextActionAllowed(action, target)) return;
-    if (target.kind === 'board') { context.onAddGroup(target.position); return; }
+    if (target.kind === 'board') {
+      if (action === 'new-folder') context.onAddGroup(target.position);
+      if (action === 'add-shortcut') context.onAddShortcut({ position: target.position });
+      return;
+    }
+    if (target.kind === 'folder-contents') {
+      if (action === 'add-shortcut' && context.config.groups.some((group) => group.id === target.groupId)) context.onAddShortcut({ groupId: target.groupId });
+      return;
+    }
+    if (target.kind === 'folder-shortcut') {
+      const shortcut = context.config.shortcuts.find((item) => item.id === target.shortcutId && item.groupId === target.groupId);
+      if (shortcut && action === 'edit') context.onEditShortcut(shortcut);
+      if (shortcut && action === 'delete') await context.onDeleteShortcut(shortcut.id);
+      return;
+    }
     if (target.kind === 'none') return;
     const item = items.find((candidate) => candidate.key === target.key);
     if (!item || item.kind !== target.kind) return;

@@ -6,7 +6,7 @@ export default defineConfig({
     name: '__MSG_extensionName__',
     description: '__MSG_extensionDescription__',
     default_locale: 'zh_CN',
-    permissions: ['storage', 'unlimitedStorage', 'search', 'favicon', 'contextMenus', 'geolocation'],
+    permissions: ['storage', 'unlimitedStorage', 'search', 'favicon', 'contextMenus', 'geolocation', 'alarms'],
     optional_permissions: ['history'],
     icons: {
       16: 'icons/isu-16.png',

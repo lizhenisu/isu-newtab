@@ -11,6 +11,7 @@ import type {
   SyncMetadata,
   SyncMode,
 } from '../domain/types';
+import type { RandomWallpaperState } from '../wallpaper/random';
 import type { WeatherPreferences } from '../weather/preferences';
 import type { WeatherCache } from '../weather/cache';
 import type { Piece } from '../domain/pieces';
@@ -23,8 +24,8 @@ interface NewTabDatabase extends DBSchema {
   assets: { key: string; value: AssetRecord };
   cursors: { key: string; value: ProviderCursor };
   settings: {
-    key: 'deviceIdentity' | 'syncMode' | 'searchHistory' | 'searchHistorySource' | 'appLanguage' | 'weatherPreferences' | 'weatherCache';
-    value: DeviceIdentity | SyncMode | SearchHistoryEntry[] | SearchHistorySource | AppLanguage | WeatherPreferences | WeatherCache;
+    key: 'deviceIdentity' | 'syncMode' | 'searchHistory' | 'searchHistorySource' | 'appLanguage' | 'weatherPreferences' | 'weatherCache' | 'randomWallpaper';
+    value: DeviceIdentity | SyncMode | SearchHistoryEntry[] | SearchHistorySource | AppLanguage | WeatherPreferences | WeatherCache | RandomWallpaperState;
   };
   checkpoints: { key: string; value: SyncCheckpoint };
   pieces: { key: string; value: Piece };
@@ -32,7 +33,7 @@ interface NewTabDatabase extends DBSchema {
 
 let databasePromise: Promise<IDBPDatabase<NewTabDatabase>> | undefined;
 const DATABASE_NAME = 'isu-newtab';
-const LEGACY_DATABASE_NAME = ['i', 'z', 'i', 's', 'u', '-new-tab'].join('');
+const LEGACY_DATABASE_NAME = ['isu', 'new', 'tab'].join('-');
 const STORE_NAMES = ['config', 'metadata', 'outbox', 'assets', 'cursors', 'settings', 'checkpoints', 'pieces'] as const;
 
 export function getDatabase(): Promise<IDBPDatabase<NewTabDatabase>> {

@@ -56,7 +56,7 @@ export const PIECE_SIZE_PRESETS: Record<SystemWidgetId | Exclude<PieceKind, 'sys
   focusTimer: { small: { width: 10, height: 5 }, medium: { width: 14, height: 6 }, large: { width: 18, height: 7 } },
   search: { small: { width: 24, height: 2 }, medium: { width: 24, height: 2 }, large: { width: 24, height: 2 } },
   quickNote: { small: { width: 16, height: 5 }, medium: { width: 28, height: 7 }, large: { width: 36, height: 9 } },
-  weather: { small: { width: 12, height: 4 }, medium: { width: 16, height: 5 }, large: { width: 20, height: 6 } },
+  weather: { small: { width: 6, height: 2 }, medium: { width: 10, height: 3 }, large: { width: 14, height: 4 } },
   dailyQuote: { small: { width: 12, height: 2 }, medium: { width: 16, height: 2 }, large: { width: 20, height: 3 } },
   'shortcut': { small: { width: 4, height: 3 }, medium: { width: 4, height: 3 }, large: { width: 4, height: 3 } },
   'folder': { small: { width: 4, height: 3 }, medium: { width: 4, height: 3 }, large: { width: 4, height: 3 } },

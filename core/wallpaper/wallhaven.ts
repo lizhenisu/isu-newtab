@@ -33,3 +33,12 @@ export async function searchWallhaven(query: string, page: number, categories = 
   cache.set(key, { expiresAt: Date.now() + 10 * 60 * 1000, value });
   return value;
 }
+
+/** Gets a fresh SFW random batch. Random responses intentionally bypass the search cache. */
+export async function fetchWallhavenRandom(signal?: AbortSignal): Promise<WallhavenResult[]> {
+  const params = new URLSearchParams({ categories: '111', purity: '100', sorting: 'random' });
+  const response = await fetch(`https://wallhaven.cc/api/v1/search?${params}`, { signal });
+  if (response.status === 429) throw new Error('WALLHAVEN_RATE_LIMITED');
+  if (!response.ok) throw new Error(`WALLHAVEN_HTTP_${response.status}`);
+  return responseSchema.parse(await response.json()).data;
+}

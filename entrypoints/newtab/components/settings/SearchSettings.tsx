@@ -40,7 +40,7 @@ export function SearchSettings({ historySource, onHistorySourceChange }: Props) 
 
   return (
     <section>
-      <div className="settingsSectionHeader"><div><h3>{t('searchSettings')}</h3><p>{t('searchSettingsDescription')}</p></div></div>
+      <div className="settingsSectionHeader"><div><h3>{t('searchSettings')}</h3></div></div>
       <label>{t('searchEngine')}<select aria-label={t('searchEngine')} value={preferences.engine} onChange={(event) => update({ engine: event.target.value as SearchPreferences['engine'] })}><option value="google">{t('searchEngineGoogle')}</option><option value="bing">{t('searchEngineBing')}</option></select></label>
       <label>{t('searchWidth')}<RangeInput aria-label={t('searchWidth')} min={25} max={100} step="1" value={preferences.widthPercent} onChange={(event) => update({ widthPercent: Number(event.target.value) })} /><output>{preferences.widthPercent}%</output></label>
       <label>{t('searchBackground')}<RangeInput aria-label={t('searchBackground')} min={0} max={100} step="1" value={preferences.backgroundOpacity} onChange={(event) => update({ backgroundOpacity: Number(event.target.value) })} /><output>{preferences.backgroundOpacity}%</output></label>
@@ -50,7 +50,7 @@ export function SearchSettings({ historySource, onHistorySourceChange }: Props) 
         <button type="button" className="secondary" disabled={historySource === 'chrome'} onClick={() => void changeHistorySource('chrome')}>{t(historySource === 'chrome' ? 'chromeSearchHistory' : 'enableChromeSearchHistory')}</button>
       </fieldset>}
       <label className="settingToggle"><input type="checkbox" checked={preferences.suggestionsEnabled} onChange={(event) => update({ suggestionsEnabled: event.target.checked })} /><span>{t('searchSuggestions')}</span></label>
-      <p className="settingsHint">{t(historySource === 'chrome' ? 'chromeSearchHistoryPrivacy' : 'searchSuggestionsPrivacy')}</p>
+      {historySource === 'chrome' && <p className="settingsHint">{t('chromeSearchHistoryPrivacy')}</p>}
       {permissionDenied && <p className="errorText">{t('chromeHistoryPermissionDenied')}</p>}
       {historySource === 'local' && <div className="searchHistoryActions"><button type="button" className="secondary" onClick={() => void clearHistory()}>{t('clearSearchHistory')}</button>{historyCleared && <span>{t('searchHistoryCleared')}</span>}</div>}
     </section>

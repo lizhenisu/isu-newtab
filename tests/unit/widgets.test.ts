@@ -39,11 +39,12 @@ describe('dashboard component layout', () => {
     expect(search?.position).toEqual({ column: 14, row: 12, width: 20, height: 2, gridVersion: 3 });
   });
 
-  it('uses compact footprints for the clock, greeting, and daily quote', () => {
+  it('uses compact footprints for the clock, greeting, weather, and daily quote', () => {
     const layout = resolveWidgetLayout(createDefaultWidgetLayout());
     expect(layout.find((item) => item.id === 'clock')?.position.width).toBe(10);
     expect(layout.find((item) => item.id === 'greeting')?.position.width).toBe(8);
     expect(layout.find((item) => item.id === 'search')?.position.width).toBe(20);
+    expect(layout.find((item) => item.id === 'weather')?.position).toMatchObject({ width: 10, height: 3 });
     expect(layout.find((item) => item.id === 'dailyQuote')?.position.width).toBe(16);
   });
 
@@ -67,6 +68,14 @@ describe('dashboard component layout', () => {
     const oldConfig = structuredClone(config) as Record<string, unknown> & { appearance: Record<string, unknown> };
     delete oldConfig.appearance.widgetLayout;
     expect(appConfigSchema.parse(oldConfig).appearance.widgetLayout.value).toEqual(createDefaultWidgetLayout());
+  });
+
+  it('derives the remembered solid color from older solid wallpaper data', () => {
+    const config = createInitialConfig({ deviceId: 'local', counter: 0, epoch: 0 });
+    config.appearance.wallpaper.value = { type: 'solid', color: '#4a7098' };
+    const oldConfig = structuredClone(config) as Record<string, unknown> & { appearance: Record<string, unknown> };
+    delete oldConfig.appearance.solidColor;
+    expect(appConfigSchema.parse(oldConfig).appearance.solidColor.value).toBe('#4a7098');
   });
 
   it('adds the default layout when reading an older remote envelope', () => {

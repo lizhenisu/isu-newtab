@@ -37,6 +37,7 @@ function projectWallpaper(wallpaper: AppConfig['appearance']['wallpaper']['value
     case 'solid': return wallpaper;
     case 'builtin': return wallpaper;
     case 'wallhaven': return { type: 'wallhaven', imageUrl: wallpaper.imageUrl };
+    case 'wallhaven-random': return wallpaper;
     case 'unsplash': return wallpaper;
     case 'upload': return undefined;
   }
@@ -112,6 +113,7 @@ function mergeWithBase(
   const theme = mergeVersionedThreeWay(base?.config.appearance.theme, local.config.appearance.theme, remote.config.appearance.theme);
   const blur = mergeVersionedThreeWay(base?.config.appearance.blur, local.config.appearance.blur, remote.config.appearance.blur);
   const cardSize = mergeVersionedThreeWay(base?.config.appearance.cardSize, local.config.appearance.cardSize, remote.config.appearance.cardSize);
+  const solidColor = mergeVersionedThreeWay(base?.config.appearance.solidColor, local.config.appearance.solidColor, remote.config.appearance.solidColor);
   const search = mergeVersionedThreeWay(base?.config.appearance.search, local.config.appearance.search, remote.config.appearance.search);
   const mergedConfig: SyncEnvelope['config'] = {
     schemaVersion: 1,
@@ -119,7 +121,7 @@ function mergeWithBase(
     updatedAt: new Date().toISOString(),
     groups: repaired.groups,
     shortcuts: repaired.shortcuts,
-    appearance: { theme, blur, cardSize, widgetLayout, search, ...(wallpaper ? { wallpaper } : {}) },
+    appearance: { theme, blur, cardSize, solidColor, widgetLayout, search, ...(wallpaper ? { wallpaper } : {}) },
   };
   // A piece is a placement projection of a business entity.  Its bucket is
   // merged independently for fine-grained sync, but a deleted shortcut or

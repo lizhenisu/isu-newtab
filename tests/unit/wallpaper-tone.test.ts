@@ -7,6 +7,7 @@ describe('wallpaper tone', () => {
     const config = createInitialConfig({ deviceId: 'test', counter: 0, epoch: 0 });
     expect(DEFAULT_SOLID_WALLPAPER_COLOR).toBe('#ffffff');
     expect(config.appearance.wallpaper.value).toEqual({ type: 'solid', color: '#ffffff' });
+    expect(config.appearance.solidColor.value).toBe('#ffffff');
     expect(wallpaperTone(config.appearance.wallpaper.value)).toBe('light');
   });
 

@@ -33,6 +33,8 @@ import { executeDesktopCommand, nearestDesktopVacancy } from '../layout/desktop-
 import { collisionRectFor, collisionRectsOverlap, type DesktopCollisionGeometry } from '../layout/desktop-collision';
 import { SYSTEM_WIDGET_IDS, WIDGET_SIZE_PRESETS, type SystemWidgetId, type WidgetPosition } from '../domain/widgets';
 import { createDefaultPieces, isPiecePositionValid, pieceFingerprint, piecePositionForWidget, piecePositionsOverlap, searchPercentToPieceWidth, type Piece, type PiecePosition, type PieceSnapshot } from '../domain/pieces';
+import type { RandomWallpaperState } from '../wallpaper/random';
+import { isRandomWallpaperState } from '../wallpaper/random';
 import type { AppUnitOfWork, AssetRepository, BackupRepository, ConfigRepository, SyncRepository } from './ports';
 
 type Listener = () => void;
@@ -91,7 +93,7 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
         await transaction.objectStore('assets').clear();
         await transaction.objectStore('cursors').clear();
         await transaction.objectStore('checkpoints').clear();
-        for (const key of ['searchHistory', 'searchHistorySource', 'appLanguage', 'weatherPreferences', 'weatherCache', 'syncMode'] as const) {
+        for (const key of ['searchHistory', 'searchHistorySource', 'appLanguage', 'weatherPreferences', 'weatherCache', 'randomWallpaper', 'syncMode'] as const) {
           await transaction.objectStore('settings').delete(key);
         }
         identity.epoch += 1;
@@ -663,6 +665,52 @@ export class IndexedDbUnitOfWork implements AppUnitOfWork {
 
   async setWallpaper(wallpaper: Wallpaper): Promise<void> {
     return this.updateAppearance('wallpaper', wallpaper);
+  }
+
+  async setSolidWallpaper(color: string): Promise<void> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['config', 'outbox', 'settings'], 'readwrite');
+    const config = await this.requireConfig(transaction.objectStore('config'));
+    const identity = await this.requireIdentity(transaction.objectStore('settings'));
+    const shouldUpdateColor = config.appearance.solidColor.value !== color;
+    const shouldUpdateWallpaper = config.appearance.wallpaper.value.type !== 'solid' || config.appearance.wallpaper.value.color !== color;
+    if (!shouldUpdateColor && !shouldUpdateWallpaper) { await transaction.done; return; }
+    if (shouldUpdateColor) {
+      config.appearance.solidColor = { value: color, revision: nextRevision(identity, config.appearance.solidColor.revision) };
+      await transaction.objectStore('outbox').put(outboxEntry('appearance', 'solidColor', config.appearance.solidColor.revision, 'upsert'));
+    }
+    if (shouldUpdateWallpaper) {
+      config.appearance.wallpaper = { value: { type: 'solid', color }, revision: nextRevision(identity, config.appearance.wallpaper.revision) };
+      await transaction.objectStore('outbox').put(outboxEntry('appearance', 'wallpaper', config.appearance.wallpaper.revision, 'upsert'));
+    }
+    config.updatedAt = new Date().toISOString();
+    await transaction.objectStore('config').put(config, 'current');
+    await transaction.objectStore('settings').put(identity, 'deviceIdentity');
+    await transaction.done;
+    this.emit();
+  }
+
+  async getRandomWallpaperState(): Promise<RandomWallpaperState | undefined> {
+    const value = await (await getDatabase()).get('settings', 'randomWallpaper');
+    return isRandomWallpaperState(value) ? clone(value) : undefined;
+  }
+
+  async saveRandomWallpaperState(state: RandomWallpaperState, blob: Blob): Promise<void> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['settings', 'assets'], 'readwrite');
+    await transaction.objectStore('settings').put(clone(state), 'randomWallpaper');
+    await transaction.objectStore('assets').put({ key: 'wallpaper/random-current', blob, updatedAt: state.updatedAt, sourceUrl: state.imageUrl });
+    await transaction.done;
+    this.emit();
+  }
+
+  async clearRandomWallpaperState(): Promise<void> {
+    const database = await getDatabase();
+    const transaction = database.transaction(['settings', 'assets'], 'readwrite');
+    await transaction.objectStore('settings').delete('randomWallpaper');
+    await transaction.objectStore('assets').delete('wallpaper/random-current');
+    await transaction.done;
+    this.emit();
   }
 
   async setUploadedWallpaper(blob: Blob): Promise<void> {

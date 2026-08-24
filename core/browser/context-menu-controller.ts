@@ -8,16 +8,17 @@ import {
   nativeMenuState,
   type DesktopContextPortMessage,
   type DesktopContextTarget,
+  type NativeMenuItemState,
 } from './native-context-menu';
 
 type RuntimePort = ReturnType<typeof browser.runtime.connect>;
 
 const ports = new Map<number, RuntimePort>();
 const targets = new Map<number, DesktopContextTarget>();
-let menuUpdateQueue = Promise.resolve();
-let menuCreationQueue = Promise.resolve();
+let menuLifecycleQueue = Promise.resolve();
 
 export function registerDesktopContextMenus(): void {
+  void refreshDesktopContextMenus();
   browser.runtime.onInstalled.addListener(() => { void refreshDesktopContextMenus(); });
   browser.runtime.onConnect.addListener((port) => {
     if (port.name !== DESKTOP_CONTEXT_PORT || port.sender?.tab?.id === undefined) return;
@@ -46,8 +47,7 @@ export function registerDesktopContextMenus(): void {
 }
 
 export async function refreshDesktopContextMenus(): Promise<void> {
-  menuCreationQueue = menuCreationQueue.catch(() => undefined).then(() => createDesktopContextMenus());
-  await menuCreationQueue;
+  await queueMenuLifecycle(() => createDesktopContextMenus());
 }
 
 async function createDesktopContextMenus(): Promise<void> {
@@ -56,6 +56,7 @@ async function createDesktopContextMenus(): Promise<void> {
   const common = { contexts: ['all'] as ['all'], documentUrlPatterns, visible: false };
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.root, title: 'Isu', ...common });
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.newFolder, parentId: CONTEXT_MENU_IDS.root, title: t('newFolder'), ...common });
+  browser.contextMenus.create({ id: CONTEXT_MENU_IDS.addShortcut, parentId: CONTEXT_MENU_IDS.root, title: t('addShortcut'), ...common });
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.open, parentId: CONTEXT_MENU_IDS.root, title: t('open'), ...common });
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.edit, parentId: CONTEXT_MENU_IDS.root, title: t('edit'), ...common });
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.rename, parentId: CONTEXT_MENU_IDS.root, title: t('rename'), ...common });
@@ -69,10 +70,36 @@ async function createDesktopContextMenus(): Promise<void> {
 }
 
 function queueDesktopContextMenuUpdate(target: DesktopContextTarget): void {
-  menuUpdateQueue = menuUpdateQueue.catch(() => undefined).then(() => updateDesktopContextMenus(target));
+  void queueMenuLifecycle(() => updateDesktopContextMenus(target));
 }
 
 async function updateDesktopContextMenus(target: DesktopContextTarget): Promise<void> {
   const entries = Object.entries(nativeMenuState(target));
-  await Promise.all(entries.map(([id, state]) => browser.contextMenus.update(id, state)));
+  try {
+    await updateMenuEntries(entries);
+  } catch (error) {
+    if (!isMissingMenuItemError(error)) throw error;
+    await createDesktopContextMenus();
+    await updateMenuEntries(entries);
+  }
+}
+
+function updateMenuEntries(entries: Array<[string, NativeMenuItemState]>): Promise<void> {
+  return Promise.all(entries.map(([id, state]) => browser.contextMenus.update(id, state))).then(() => undefined);
+}
+
+function queueMenuLifecycle(operation: () => Promise<void>): Promise<void> {
+  menuLifecycleQueue = menuLifecycleQueue
+    .catch((error) => reportMenuError('previous menu operation', error))
+    .then(operation)
+    .catch((error) => reportMenuError('menu operation', error));
+  return menuLifecycleQueue;
+}
+
+function isMissingMenuItemError(error: unknown): boolean {
+  return /cannot find menu item/i.test(error instanceof Error ? error.message : String(error));
+}
+
+function reportMenuError(operation: string, error: unknown): void {
+  console.warn(`Isu ${operation} failed.`, error);
 }

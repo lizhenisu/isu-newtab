@@ -34,6 +34,7 @@ export function createInitialConfig(identity: DeviceIdentity): AppConfig {
       theme: { value: 'system', revision },
       blur: { value: 18, revision },
       cardSize: { value: 'medium', revision },
+      solidColor: { value: DEFAULT_SOLID_WALLPAPER_COLOR, revision },
       wallpaper: { value: { type: 'solid', color: DEFAULT_SOLID_WALLPAPER_COLOR }, revision },
       widgetLayout: { value: createDefaultWidgetLayout(), revision },
       search: { value: { ...DEFAULT_SEARCH_PREFERENCES }, revision },

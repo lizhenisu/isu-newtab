@@ -29,6 +29,15 @@ describe('sync engine', () => {
     expect(JSON.stringify(envelope)).not.toContain('wallpaperId');
   });
 
+  it('syncs random mode and interval without a device-local random image', () => {
+    const config = createInitialConfig(identity('a'));
+    config.appearance.wallpaper = { value: { type: 'wallhaven-random', interval: '5h' }, revision: { counter: 2, deviceId: 'a' } };
+    const envelope = createEnvelope(config, { tombstones: [] }, { counter: 2, deviceId: 'a' }, 0);
+
+    expect(envelope.config.appearance.wallpaper?.value).toEqual({ type: 'wallhaven-random', interval: '5h' });
+    expect(JSON.stringify(envelope)).not.toContain('random-current');
+  });
+
   it('syncs Unsplash hotlink and attribution without API credentials', () => {
     const device = identity('a');
     const config = createInitialConfig(device);

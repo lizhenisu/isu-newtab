@@ -38,12 +38,16 @@ export type Wallpaper =
   | { type: 'builtin'; assetId: string }
   | { type: 'upload'; assetKey: string }
   | { type: 'wallhaven'; imageUrl: string; sourceUrl?: string; wallpaperId?: string }
+  | { type: 'wallhaven-random'; interval: WallpaperRefreshInterval }
   | { type: 'unsplash'; imageUrl: string; sourceUrl: string; photoId: string; photographerName: string; photographerUrl: string };
+
+export type WallpaperRefreshInterval = '1h' | '5h' | '1d';
 
 export type WallpaperSyncProjection =
   | { type: 'solid'; color: string }
   | { type: 'builtin'; assetId: string }
   | { type: 'wallhaven'; imageUrl: string }
+  | { type: 'wallhaven-random'; interval: WallpaperRefreshInterval }
   | { type: 'unsplash'; imageUrl: string; sourceUrl: string; photoId: string; photographerName: string; photographerUrl: string };
 
 export type SearchPreferences = {
@@ -62,6 +66,7 @@ export type Appearance = {
   theme: VersionedValue<'light' | 'dark' | 'system'>;
   blur: VersionedValue<number>;
   cardSize: VersionedValue<'small' | 'medium' | 'large'>;
+  solidColor: VersionedValue<string>;
   wallpaper: VersionedValue<Wallpaper>;
   widgetLayout: VersionedValue<WidgetLayout>;
   search: VersionedValue<SearchPreferences>;

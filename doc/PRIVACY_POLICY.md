@@ -19,6 +19,7 @@ Isu 可以在浏览器本地保存时钟、搜索框、便签、专注计时器�
 - 搜索历史；
 - Unsplash Access Key；
 - 壁纸图片缓存。
+- 在线随机壁纸当前图片、缓存与下次切换时间。
 - 天气组件的位置坐标、温度单位偏好和天气响应。
 
 ### 2. 搜索历史和搜索建议
@@ -33,7 +34,7 @@ Isu 可以在浏览器本地保存时钟、搜索框、便签、专注计时器�
 
 ### 3. 壁纸和在线服务
 
-- Wallhaven：当用户搜索或选择 Wallhaven 壁纸时，Isu 会请求 Wallhaven 的搜索接口和壁纸资源。
+- Wallhaven：当用户搜索、选择或启用在线随机壁纸时，Isu 会请求 Wallhaven 的搜索接口和壁纸资源。
 - Unsplash：当用户选择 Unsplash 作为来源并提供 Access Key 后，Isu 会使用该密钥请求 Unsplash 官方 API，搜索和显示壁纸，并按照 Unsplash 要求发送下载跟踪请求。
 - 本地壁纸：用户上传的壁纸只保存在当前浏览器的本地存储中，除非用户主动将其包含在本地备份文件中。
 
@@ -87,6 +88,7 @@ Chrome 历史本身由 Chrome 管理。Isu 不提供删除 Chrome 历史的功�
 - `favicon`：显示快捷方式网站的图标；
 - `contextMenus`：在 Chrome 原生右键菜单中提供 Isu 操作；
 - `geolocation`：仅在用户主动启用天气组件或点击位置重试时读取当前位置，用于向 Open-Meteo 请求天气；
+- `alarms`：仅用于在线随机壁纸的本机定时切换；
 - `history`（可选）：仅在用户主动授权后读取 Chrome 浏览历史中的搜索结果页；
 - Wallhaven、Unsplash、Google Suggest、Bing、Open-Meteo、OpenStreetMap Nominatim、一言和 ZenQuotes 的网站权限：分别用于壁纸搜索、壁纸显示/跟踪、搜索建议、天气、城市名称和每日一语。
 

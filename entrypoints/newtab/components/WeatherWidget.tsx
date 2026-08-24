@@ -84,7 +84,6 @@ function WeatherCard({ forecast, city }: { forecast: WeatherForecast; city?: str
     <div className="weatherHeader"><span className="weatherLocationName" title={city}>{city ?? t('weatherCurrentLocation')}</span></div>
     <div className="weatherCurrent"><WeatherIcon condition={forecast.condition} isDay={forecast.isDay} /><span className="weatherTemperature"><strong>{formatTemperature(forecast.temperature)}°</strong><span>{degree}</span></span><span>{t(`weather${conditionKey(forecast.condition)}`)}</span></div>
     <div className="weatherDetails"><span>{t('weatherFeelsLike')} {formatTemperature(forecast.apparentTemperature)}°</span><span>{t('weatherHighLow')} {formatTemperature(forecast.high)}° / {formatTemperature(forecast.low)}°</span><span>{t('weatherPrecipitation')} {Math.round(forecast.precipitationProbability)}%</span></div>
-    <div className="weatherAttribution"><a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open‑Meteo</a><span>·</span><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap</a></div>
   </div>;
 }
 

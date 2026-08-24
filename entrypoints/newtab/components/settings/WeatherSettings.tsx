@@ -24,13 +24,12 @@ export function WeatherSettings() {
 
   return (
     <section>
-      <div className="settingsSectionHeader"><div><h3>{t('weather')}</h3><p>{t('weatherSettingsDescription')}</p></div></div>
+      <div className="settingsSectionHeader"><div><h3>{t('weather')}</h3></div></div>
       <label>{t('weatherTemperatureUnit')}<select value={units} onChange={(event) => updateUnits(event.target.value as TemperatureUnitPreference)}>
         <option value="auto">{t('weatherUnitAuto')}</option>
         <option value="celsius">{t('weatherUnitCelsius')}</option>
         <option value="fahrenheit">{t('weatherUnitFahrenheit')}</option>
       </select></label>
-      <p className="settingsHint">{t('weatherPrivacy')}</p>
     </section>
   );
 }

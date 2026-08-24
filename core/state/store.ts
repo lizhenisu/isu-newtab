@@ -31,6 +31,7 @@ type AppState = {
   previewAppearance<K extends 'blur' | 'search'>(key: K, value: K extends 'blur' ? number : SearchPreferences): void;
   clearAppearancePreview(key: 'blur' | 'search'): void;
   setWallpaper(wallpaper: Wallpaper): Promise<void>;
+  setSolidWallpaper(color: string): Promise<void>;
   setSyncMode(mode: SyncMode): Promise<void>;
 };
 
@@ -79,6 +80,7 @@ export const useAppStore = create<AppState>((set) => ({
     });
   },
   async setWallpaper(wallpaper) { await mutate(set, () => appRepositories.config.setWallpaper(wallpaper)); },
+  async setSolidWallpaper(color) { await mutate(set, () => appRepositories.config.setSolidWallpaper(color)); },
   async setSyncMode(mode) {
     try {
       await browser.runtime.sendMessage({ type: 'sync:set-mode', mode });

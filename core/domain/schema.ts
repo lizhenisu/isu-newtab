@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createDefaultWidgetLayout, WIDGET_IDS } from './widgets';
-import { DEFAULT_SEARCH_PREFERENCES } from './defaults';
+import { DEFAULT_SEARCH_PREFERENCES, DEFAULT_SOLID_WALLPAPER_COLOR } from './defaults';
 import { isPiecePositionValid } from './pieces';
 
 export const revisionSchema = z.object({
@@ -77,8 +77,15 @@ const legacySearchPreferences = () => ({
   revision: { counter: 0, deviceId: 'legacy-search-preferences' },
 });
 
+const solidColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i);
+
+const legacySolidColor = () => ({
+  value: DEFAULT_SOLID_WALLPAPER_COLOR,
+  revision: { counter: 0, deviceId: 'legacy-solid-color' },
+});
+
 export const wallpaperSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('solid'), color: z.string().regex(/^#[0-9a-f]{6}$/i) }),
+  z.object({ type: z.literal('solid'), color: solidColorSchema }),
   z.object({ type: z.literal('builtin'), assetId: z.string().min(1) }),
   z.object({ type: z.literal('upload'), assetKey: z.string().min(1) }),
   z.object({
@@ -87,6 +94,7 @@ export const wallpaperSchema = z.discriminatedUnion('type', [
     sourceUrl: z.string().url().optional(),
     wallpaperId: z.string().optional(),
   }),
+  z.object({ type: z.literal('wallhaven-random'), interval: z.enum(['1h', '5h', '1d']).default('1d') }),
   z.object({
     type: z.literal('unsplash'),
     imageUrl: z.string().url().refine((url) => url.startsWith('https://images.unsplash.com/')),
@@ -117,20 +125,28 @@ export const shortcutSchema = z.object({
   revision: revisionSchema,
 });
 
+const appearanceSchema = z.object({
+  theme: versioned(z.enum(['light', 'dark', 'system'])),
+  blur: versioned(z.number().min(0).max(40)),
+  cardSize: versioned(z.enum(['small', 'medium', 'large'])),
+  solidColor: versioned(solidColorSchema).optional(),
+  wallpaper: versioned(wallpaperSchema),
+  widgetLayout: versioned(widgetLayoutSchema).default(legacyWidgetLayout),
+  search: versioned(searchPreferencesSchema).default(legacySearchPreferences),
+}).transform((appearance) => ({
+  ...appearance,
+  solidColor: appearance.solidColor ?? (appearance.wallpaper.value.type === 'solid'
+    ? { value: appearance.wallpaper.value.color, revision: appearance.wallpaper.revision }
+    : legacySolidColor()),
+}));
+
 export const appConfigSchema = z.object({
   schemaVersion: z.literal(1),
   datasetId: z.string().min(1),
   updatedAt: z.string().datetime(),
   groups: z.array(groupSchema),
   shortcuts: z.array(shortcutSchema),
-  appearance: z.object({
-    theme: versioned(z.enum(['light', 'dark', 'system'])),
-    blur: versioned(z.number().min(0).max(40)),
-    cardSize: versioned(z.enum(['small', 'medium', 'large'])),
-    wallpaper: versioned(wallpaperSchema),
-    widgetLayout: versioned(widgetLayoutSchema).default(legacyWidgetLayout),
-    search: versioned(searchPreferencesSchema).default(legacySearchPreferences),
-  }),
+  appearance: appearanceSchema,
 }).superRefine((config, context) => {
   const groupIds = new Set(config.groups.map((group) => group.id));
   if (groupIds.size !== config.groups.length) context.addIssue({ code: 'custom', message: 'DUPLICATE_GROUP_ID', path: ['groups'] });
@@ -143,9 +159,10 @@ export const appConfigSchema = z.object({
 });
 
 const wallpaperSyncProjectionSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('solid'), color: z.string().regex(/^#[0-9a-f]{6}$/i) }),
+  z.object({ type: z.literal('solid'), color: solidColorSchema }),
   z.object({ type: z.literal('builtin'), assetId: z.string().min(1) }),
   z.object({ type: z.literal('wallhaven'), imageUrl: z.string().url().refine((url) => url.startsWith('https://w.wallhaven.cc/')) }),
+  z.object({ type: z.literal('wallhaven-random'), interval: z.enum(['1h', '5h', '1d']).default('1d') }),
   z.object({
     type: z.literal('unsplash'),
     imageUrl: z.string().url().refine((url) => url.startsWith('https://images.unsplash.com/')),
@@ -155,6 +172,21 @@ const wallpaperSyncProjectionSchema = z.discriminatedUnion('type', [
     photographerUrl: z.string().url().refine((url) => url.startsWith('https://unsplash.com/')),
   }),
 ]);
+
+const syncAppearanceSchema = z.object({
+  theme: versioned(z.enum(['light', 'dark', 'system'])),
+  blur: versioned(z.number().min(0).max(40)),
+  cardSize: versioned(z.enum(['small', 'medium', 'large'])),
+  solidColor: versioned(solidColorSchema).optional(),
+  wallpaper: versioned(wallpaperSyncProjectionSchema).optional(),
+  widgetLayout: versioned(widgetLayoutSchema).default(legacyWidgetLayout),
+  search: versioned(searchPreferencesSchema).default(legacySearchPreferences),
+}).transform((appearance) => ({
+  ...appearance,
+  solidColor: appearance.solidColor ?? (appearance.wallpaper?.value.type === 'solid'
+    ? { value: appearance.wallpaper.value.color, revision: appearance.wallpaper.revision }
+    : legacySolidColor()),
+}));
 
 export const syncEnvelopeSchema = z.object({
   schemaVersion: z.literal(1),
@@ -167,14 +199,7 @@ export const syncEnvelopeSchema = z.object({
     updatedAt: z.string().datetime(),
     groups: z.array(groupSchema),
     shortcuts: z.array(shortcutSchema),
-    appearance: z.object({
-      theme: versioned(z.enum(['light', 'dark', 'system'])),
-      blur: versioned(z.number().min(0).max(40)),
-      cardSize: versioned(z.enum(['small', 'medium', 'large'])),
-      wallpaper: versioned(wallpaperSyncProjectionSchema).optional(),
-      widgetLayout: versioned(widgetLayoutSchema).default(legacyWidgetLayout),
-      search: versioned(searchPreferencesSchema).default(legacySearchPreferences),
-    }),
+    appearance: syncAppearanceSchema,
   }),
   pieces: z.array(pieceSchema).default([]),
   metadata: z.object({

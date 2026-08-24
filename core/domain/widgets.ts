@@ -50,7 +50,7 @@ const DEFAULT_POSITIONS: Record<WidgetId, WidgetPosition> = {
   focusTimer: { column: 17, row: 6, width: 14, height: 6, gridVersion: 3 },
   search: { column: 14, row: 12, width: 20, height: 2, gridVersion: 3 },
   quickNote: { column: 10, row: 14, width: 28, height: 7, gridVersion: 3 },
-  weather: { column: 16, row: 26, width: 16, height: 5, gridVersion: 3 },
+  weather: { column: 19, row: 26, width: 10, height: 3, gridVersion: 3 },
   shortcuts: { column: 16, row: 20, width: 16, height: 4, gridVersion: 3 },
   dailyQuote: { column: 16, row: 24, width: 16, height: 2, gridVersion: 3 },
   addShortcut: { column: 34, row: 24, width: 4, height: 3, gridVersion: 3 },
@@ -62,7 +62,7 @@ export const WIDGET_SIZE_PRESETS: Record<SystemWidgetId, Record<WidgetSizePreset
   focusTimer: { small: { width: 10, height: 5 }, medium: { width: 14, height: 6 }, large: { width: 18, height: 7 } },
   search: { small: { width: 20, height: 2 }, medium: { width: 20, height: 2 }, large: { width: 20, height: 2 } },
   quickNote: { small: { width: 16, height: 5 }, medium: { width: 28, height: 7 }, large: { width: 36, height: 9 } },
-  weather: { small: { width: 12, height: 4 }, medium: { width: 16, height: 5 }, large: { width: 20, height: 6 } },
+  weather: { small: { width: 6, height: 2 }, medium: { width: 10, height: 3 }, large: { width: 14, height: 4 } },
   dailyQuote: { small: { width: 12, height: 2 }, medium: { width: 16, height: 2 }, large: { width: 20, height: 3 } },
 };
 

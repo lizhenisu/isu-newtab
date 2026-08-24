@@ -72,6 +72,19 @@ describe('repository', () => {
     expect((await repository.getOutbox()).filter((entry) => entry.entityId === 'wallpaper')).toHaveLength(0);
   });
 
+  it('preserves the selected solid color while other wallpaper modes are active', async () => {
+    const repository = new AppRepository();
+    await repository.initialize();
+    await repository.setSolidWallpaper('#4a7098');
+    await repository.setWallpaper({ type: 'builtin', assetId: 'ocean' });
+    expect((await repository.getConfig()).appearance.solidColor.value).toBe('#4a7098');
+
+    await repository.setSolidWallpaper('#4a7098');
+    const config = await repository.getConfig();
+    expect(config.appearance.wallpaper.value).toEqual({ type: 'solid', color: '#4a7098' });
+    expect((await repository.getOutbox()).some((entry) => entry.entityType === 'appearance' && entry.entityId === 'solidColor')).toBe(true);
+  });
+
   it('restores business data, tombstones, outbox, and cursor from a safety checkpoint', async () => {
     const repository = new AppRepository();
     const initial = await repository.initialize();
