@@ -2,6 +2,7 @@ import { expect, test, chromium, type BrowserContext } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { BUILTIN_WALLPAPERS } from '../../core/wallpaper/builtin';
 
 declare global {
   interface Window {
@@ -33,6 +34,49 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   await context?.close();
   await rm(profile, { recursive: true, force: true });
+});
+
+test('centers the mobile piece board and fills the search piece', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+
+  for (const viewport of [
+    { width: 375, height: 667 },
+    { width: 440, height: 956 },
+    { width: 540, height: 720 },
+  ]) {
+    const page = await context.newPage();
+    await page.setViewportSize(viewport);
+    await page.route('https://suggestqueries.google.com/**', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify(['mobile', ['mobile search suggestion']]),
+    }));
+    await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+    await expect(page.locator('.pieceBoard')).toBeVisible();
+    const gutters = await page.locator('.pieceBoard').evaluate((board) => {
+      const rect = board.getBoundingClientRect();
+      return { left: rect.left, right: window.innerWidth - rect.right };
+    });
+    expect(Math.abs(gutters.left - gutters.right)).toBeLessThanOrEqual(1);
+    expect(gutters.left).toBeGreaterThanOrEqual(10);
+    const searchPiece = page.locator('.dashboardWidget--search .pieceContent');
+    const searchShell = page.locator('.searchWidgetShell');
+    const searchForm = page.locator('form.search');
+    const [pieceBox, shellBox, formBox] = await Promise.all([searchPiece.boundingBox(), searchShell.boundingBox(), searchForm.boundingBox()]);
+    if (!pieceBox || !shellBox || !formBox) throw new Error('Mobile search geometry was not measurable');
+    expect(Math.abs(shellBox.width - pieceBox.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(formBox.width - pieceBox.width)).toBeLessThanOrEqual(1);
+    expect(formBox.x).toBeGreaterThanOrEqual(pieceBox.x - 1);
+    expect(formBox.x + formBox.width).toBeLessThanOrEqual(pieceBox.x + pieceBox.width + 1);
+    const searchInput = page.getByRole('textbox', { name: /Search the web|搜索互联网/, exact: true });
+    await searchInput.fill('mobile');
+    const suggestionSurfaceBox = await page.locator('.searchSuggestionsSurface').boundingBox();
+    if (!suggestionSurfaceBox) throw new Error('Mobile suggestions were not measurable');
+    expect(Math.abs(suggestionSurfaceBox.width - formBox.width)).toBeLessThanOrEqual(1);
+    await page.close();
+  }
 });
 
 test('loads the extension, creates a shortcut, and persists it after reload', async () => {
@@ -206,6 +250,38 @@ test('keeps weather hidden until enabled, then requests local location and loads
   expect(weatherRects.location.bottom).toBeLessThanOrEqual(weatherRects.temperature.top);
   expect(weatherRects.temperature.bottom).toBeLessThanOrEqual(weatherRects.details.top);
   expect(weatherRects.hasAttribution).toBe(false);
+  for (const viewport of [
+    { width: 768, height: 1024 },
+    { width: 820, height: 1180 },
+    { width: 912, height: 1368 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const weatherGeometry = await weatherCard.evaluate((element) => {
+      const toBox = (node: Element) => {
+        const rect = node.getBoundingClientRect();
+        return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+      };
+      const piece = element.closest<HTMLElement>('[data-widget-id="weather"]')!;
+      const content = piece.querySelector<HTMLElement>('.pieceContent')!;
+      return {
+        card: toBox(element),
+        content: toBox(content),
+        children: [
+          ...Array.from(element.querySelectorAll('.weatherLocationName, .weatherIcon, .weatherTemperature, .weatherCurrent > span:last-child, .weatherDetails span')),
+        ].map(toBox),
+        scrollWidth: element.scrollWidth,
+        clientWidth: element.clientWidth,
+        scrollHeight: element.scrollHeight,
+        clientHeight: element.clientHeight,
+      };
+    });
+    const contains = (outer: typeof weatherGeometry.card, inner: typeof weatherGeometry.card) =>
+      inner.left >= outer.left - 1 && inner.top >= outer.top - 1 && inner.right <= outer.right + 1 && inner.bottom <= outer.bottom + 1;
+    expect(contains(weatherGeometry.content, weatherGeometry.card)).toBe(true);
+    expect(weatherGeometry.scrollWidth).toBeLessThanOrEqual(weatherGeometry.clientWidth + 1);
+    expect(weatherGeometry.scrollHeight).toBeLessThanOrEqual(weatherGeometry.clientHeight + 1);
+    for (const child of weatherGeometry.children) expect(contains(weatherGeometry.card, child)).toBe(true);
+  }
   const secondPage = await context.newPage();
   await secondPage.goto(`chrome-extension://${extensionId}/newtab.html`);
   await expect(secondPage.getByText('Shanghai', { exact: true })).toBeVisible();
@@ -578,6 +654,82 @@ test('keeps online random wallpaper images local while syncing its interval sett
   expect(remote).not.toContain('random-e2e.jpg');
 });
 
+test('keeps an expired cached random wallpaper visible until its replacement is ready', async () => {
+  if (!context) throw new Error('Browser context was not created');
+  let serviceWorker = context.serviceWorkers()[0];
+  serviceWorker ??= await context.waitForEvent('serviceworker');
+  const extensionId = new URL(serviceWorker.url()).host;
+  const oldImageUrl = 'https://w.wallhaven.cc/full/ol/wallhaven-old-startup.jpg';
+  const newImageUrl = 'https://w.wallhaven.cc/full/ne/wallhaven-new-startup.jpg';
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9JqJkAAAAASUVORK5CYII=', 'base64');
+  let releaseRandomResponse!: () => void;
+  const randomResponse = new Promise<void>((resolve) => { releaseRandomResponse = resolve; });
+  let randomRequests = 0;
+  await context.route('https://wallhaven.cc/api/v1/search**', async (route) => {
+    randomRequests += 1;
+    await randomResponse;
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ data: [{ id: 'new-startup', url: 'https://wallhaven.cc/w/new-startup', thumbs: { large: 'https://th.wallhaven.cc/lg/ne/new-startup.jpg' }, path: newImageUrl }], meta: { current_page: 1, last_page: 1 } }),
+    });
+  });
+  await context.route(newImageUrl, (route) => route.fulfill({ contentType: 'image/png', body: png }));
+
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/newtab.html`);
+  await page.evaluate(async ({ oldImageUrl, preview, pngBytes }) => {
+    localStorage.setItem('isu:wallpaper-bootstrap-preview', JSON.stringify({ identity: `wallhaven-random:${oldImageUrl}`, background: preview }));
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('isu-newtab');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const transaction = database.transaction(['config', 'settings', 'assets'], 'readwrite');
+    const config = await new Promise<any>((resolve, reject) => {
+      const request = transaction.objectStore('config').get('current');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    config.appearance.wallpaper.value = { type: 'wallhaven-random', interval: '1h' };
+    config.updatedAt = new Date().toISOString();
+    transaction.objectStore('config').put(config, 'current');
+    transaction.objectStore('settings').put({
+      imageUrl: oldImageUrl,
+      sourceUrl: 'https://wallhaven.cc/w/old-startup',
+      wallpaperId: 'old-startup',
+      interval: '1h',
+      updatedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+      nextRefreshAt: new Date(Date.now() - 60_000).toISOString(),
+    }, 'randomWallpaper');
+    transaction.objectStore('assets').put({
+      key: 'wallpaper/random-current',
+      blob: new Blob([new Uint8Array(pngBytes)], { type: 'image/png' }),
+      updatedAt: new Date().toISOString(),
+      sourceUrl: oldImageUrl,
+    });
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error);
+    });
+  }, { oldImageUrl, preview: `data:image/png;base64,${png.toString('base64')}`, pngBytes: [...png] });
+  await page.evaluate(() => chrome.runtime.sendMessage({ type: 'wallpaper:random:reconcile' }));
+  await page.reload();
+
+  const backdrop = page.locator('.wallpaperBackdrop');
+  await expect(backdrop).toHaveAttribute('data-wallpaper-current', `wallhaven-random:${oldImageUrl}`);
+  await expect(backdrop).toHaveAttribute('data-wallpaper-source', 'asset');
+  await expect.poll(() => randomRequests).toBe(1);
+  await expect(backdrop).not.toHaveAttribute('data-wallpaper-current', /initial-white|pending|fallback/);
+  await expect(backdrop.locator('[data-wallpaper-layer]')).toHaveCount(1);
+  await expect(backdrop.locator('[data-wallpaper-layer]')).toHaveAttribute('data-wallpaper-layer', `wallhaven-random:${oldImageUrl}`);
+
+  releaseRandomResponse();
+  await expect(backdrop).toHaveAttribute('data-wallpaper-incoming', `wallhaven-random:${newImageUrl}`);
+  await expect.poll(() => backdrop.getAttribute('data-wallpaper-incoming'), { timeout: 3_500 }).toBeNull();
+  await expect(backdrop).toHaveAttribute('data-wallpaper-current', `wallhaven-random:${newImageUrl}`);
+});
+
 test('keeps the final wallpaper selection when builtin choices change in sequence', async () => {
   if (!context) throw new Error('Browser context was not created');
   let serviceWorker = context.serviceWorkers()[0];
@@ -587,6 +739,8 @@ test('keeps the final wallpaper selection when builtin choices change in sequenc
   await page.goto(`chrome-extension://${extensionId}/newtab.html`);
   await page.getByRole('button', { name: /Settings|设置/ }).click();
   const backdrop = page.locator('.wallpaperBackdrop');
+  const auroraPreview = page.getByRole('button', { name: /Aurora|极光/ });
+  await expect(auroraPreview).toHaveCSS('--builtin-wallpaper', BUILTIN_WALLPAPERS.aurora);
 
   for (const [label, identity] of [
     [/Aurora|极光/, 'builtin:aurora'],
@@ -1129,10 +1283,45 @@ test('customizes the search box and shows local history and online suggestions',
     await expect(preset).not.toHaveCSS('background-color', 'rgb(248, 250, 253)');
     await expect(preset).toHaveCSS('background-image', /gradient/);
   }
+  const onlineRandomChoice = page.getByRole('button', { name: /Online random|在线随机/, exact: true });
+  const assertActiveWallpaperHover = async (choice: typeof solidChoice, contentSelector?: string) => {
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(200);
+    const beforeHover = await choice.evaluate((element, selector) => {
+      const card = element.getBoundingClientRect();
+      const content = selector ? element.querySelector(selector)?.getBoundingClientRect() : undefined;
+      const style = getComputedStyle(element);
+      return { border: { color: style.borderTopColor, width: style.borderTopWidth }, card: card.toJSON(), content: content?.toJSON() };
+    }, contentSelector);
+    expect(beforeHover.border).toEqual({ color: 'rgb(26, 115, 232)', width: '2px' });
+    await choice.hover();
+    await page.waitForTimeout(200);
+    const afterHover = await choice.evaluate((element, selector) => {
+      const card = element.getBoundingClientRect();
+      const content = selector ? element.querySelector(selector)?.getBoundingClientRect() : undefined;
+      const style = getComputedStyle(element);
+      return {
+        card: card.toJSON(),
+        content: content?.toJSON(),
+        border: { color: style.borderTopColor, width: style.borderTopWidth },
+      };
+    }, contentSelector);
+    expect(afterHover.card).toEqual(beforeHover.card);
+    expect(afterHover.content).toEqual(beforeHover.content);
+    expect(afterHover.border).toEqual({ color: 'rgb(210, 227, 252)', width: '2px' });
+  };
   await presetButtons[1]!.click();
   await expect(solidChoice).not.toHaveClass(/active/);
   await solidChoice.locator('span').click();
   await expect(solidChoice).toHaveClass(/active/);
+  await assertActiveWallpaperHover(solidChoice, 'span');
+  await presetButtons[0]!.click();
+  await expect(presetButtons[0]!).toHaveClass(/active/);
+  await assertActiveWallpaperHover(presetButtons[0]!);
+  await onlineRandomChoice.click();
+  await expect(onlineRandomChoice).toHaveClass(/active/);
+  await assertActiveWallpaperHover(onlineRandomChoice);
+  await solidChoice.locator('span').click();
   const solidWallpaper = page.locator('.colorChoice input[type="color"]');
   await solidWallpaper.evaluate((input: HTMLInputElement) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '#ffffff');
@@ -1194,8 +1383,26 @@ test('customizes the search box and shows local history and online suggestions',
   const searchForm = page.locator('form.search');
   const searchInput = page.getByRole('textbox', { name: /Search the web|搜索互联网/, exact: true });
   const searchSubmit = searchForm.locator('.searchSubmit');
+  const searchPiece = page.locator('[data-widget-id="search"]');
+  const searchContent = searchPiece.locator('.pieceContent--search');
+  const [searchPieceBox, searchContentBox, searchFormBoxBeforeOpen] = await Promise.all([searchPiece.boundingBox(), searchContent.boundingBox(), searchForm.boundingBox()]);
+  if (!searchPieceBox || !searchContentBox || !searchFormBoxBeforeOpen) throw new Error('Search piece geometry was not measurable');
+  expect(Math.abs(searchContentBox.height - searchPieceBox.height)).toBeLessThanOrEqual(1);
+  expect(searchFormBoxBeforeOpen.y + searchFormBoxBeforeOpen.height).toBeLessThanOrEqual(searchPieceBox.y + searchPieceBox.height + 1);
+  await expect(searchContent).toHaveCSS('overflow', 'visible');
+  await expect(page.locator('[data-widget-id="clock"] .pieceContent')).toHaveCSS('overflow', 'hidden');
   await expect(shell).toHaveCSS('--search-background-alpha', '0.4');
+  await expect(searchForm).toHaveCSS('--search-surface-radius', '28px');
   await expect(searchForm).toHaveCSS('background-color', 'rgba(255, 255, 255, 0.4)');
+  await expect(searchForm).toHaveCSS('box-shadow', 'rgba(32, 33, 36, 0.24) 0px 4px 7px 0px');
+  expect(await searchForm.evaluate((element) => {
+    const transitions = getComputedStyle(element).transitionProperty.split(', ');
+    return {
+      hasBackgroundColor: transitions.includes('background-color'),
+      hasBorderColor: transitions.includes('border-color'),
+      hasBoxShadow: transitions.includes('box-shadow'),
+    };
+  })).toEqual({ hasBackgroundColor: false, hasBorderColor: false, hasBoxShadow: false });
   await expect(searchInput).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   await expect(searchInput).toHaveCSS('border-top-width', '0px');
   await expect(searchInput).toHaveCSS('box-shadow', 'none');
@@ -1225,17 +1432,56 @@ test('customizes the search box and shows local history and online suggestions',
   await input.focus();
   await expect(page.getByRole('option').filter({ hasText: 'local history phrase' })).toBeVisible();
   const suggestionList = page.getByRole('listbox');
+  const suggestionSurface = page.locator('.searchSuggestionsSurface');
+  await expect(suggestionSurface).toBeVisible();
+  const expandedFrameStyles = await page.evaluate(async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const search = getComputedStyle(document.querySelector('form.search')!);
+    const surface = getComputedStyle(document.querySelector('.searchSuggestionsSurface')!);
+    return {
+      searchBackground: search.backgroundColor,
+      searchBorder: search.borderBottomColor,
+      searchShadow: search.boxShadow,
+      surfaceBackground: surface.backgroundColor,
+      surfaceShadow: surface.boxShadow,
+    };
+  });
+  expect(expandedFrameStyles.searchBackground).toBe('rgba(0, 0, 0, 0)');
+  expect(expandedFrameStyles.searchBorder).toBe('rgba(0, 0, 0, 0)');
+  expect(expandedFrameStyles.searchShadow).toBe('none');
+  expect(expandedFrameStyles.surfaceBackground).toBe('rgba(255, 255, 255, 0.4)');
+  expect(expandedFrameStyles.surfaceShadow).toBe('rgba(32, 33, 36, 0.24) 0px 4px 7px 0px');
   const searchFormBox = await searchForm.boundingBox();
   const suggestionBox = await suggestionList.boundingBox();
-  if (!searchFormBox || !suggestionBox) throw new Error('Search suggestion geometry was not measurable');
-  expect(suggestionBox.y).toBeGreaterThanOrEqual(searchFormBox.y + searchFormBox.height - 1.5);
-  expect(Math.abs(suggestionBox.x - searchFormBox.x)).toBeLessThan(1);
-  expect(Math.abs(suggestionBox.width - searchFormBox.width)).toBeLessThan(1);
-  const searchSurfaceColors = await page.evaluate(() => ({
-    search: getComputedStyle(document.querySelector('form.search')!).backgroundColor,
-    suggestions: getComputedStyle(document.querySelector('.searchSuggestions')!).backgroundColor,
-  }));
-  expect(searchSurfaceColors.suggestions).toBe(searchSurfaceColors.search);
+  const suggestionSurfaceBox = await suggestionSurface.boundingBox();
+  if (!searchFormBox || !suggestionBox || !suggestionSurfaceBox) throw new Error('Search suggestion geometry was not measurable');
+  expect(suggestionBox.y).toBeGreaterThanOrEqual(searchFormBox.y + searchFormBox.height - .5);
+  expect(Math.abs(suggestionSurfaceBox.x - searchFormBox.x)).toBeLessThan(1);
+  expect(Math.abs(suggestionSurfaceBox.y - searchFormBox.y)).toBeLessThan(1);
+  expect(Math.abs(suggestionSurfaceBox.width - searchFormBox.width)).toBeLessThan(1);
+  expect(Math.abs((suggestionSurfaceBox.y + suggestionSurfaceBox.height) - (suggestionBox.y + suggestionBox.height))).toBeLessThanOrEqual(1);
+  await expect(suggestionSurface).toHaveCSS('pointer-events', 'auto');
+  await page.waitForTimeout(250);
+  const searchSurfaceStyles = await page.evaluate(() => {
+    const search = getComputedStyle(document.querySelector('form.search')!);
+    const suggestions = getComputedStyle(document.querySelector('.searchSuggestions')!);
+    const surface = getComputedStyle(document.querySelector('.searchSuggestionsSurface')!);
+    return {
+    background: { search: search.backgroundColor, suggestions: suggestions.backgroundColor, surface: surface.backgroundColor },
+    border: surface.borderLeftColor,
+    radius: { search: search.borderTopLeftRadius, surfaceTop: surface.borderTopLeftRadius, surfaceBottom: surface.borderBottomLeftRadius },
+    shadows: { search: search.boxShadow, suggestions: suggestions.boxShadow, surface: surface.boxShadow },
+    };
+  });
+  expect(searchSurfaceStyles.background.search).toBe('rgba(0, 0, 0, 0)');
+  expect(searchSurfaceStyles.background.suggestions).toBe('rgba(0, 0, 0, 0)');
+  expect(searchSurfaceStyles.background.surface).toBe('rgba(255, 255, 255, 0.4)');
+  expect(searchSurfaceStyles.border).toBe('rgba(223, 225, 229, 0.88)');
+  expect(searchSurfaceStyles.radius.surfaceTop).toBe(searchSurfaceStyles.radius.search);
+  expect(searchSurfaceStyles.radius.surfaceBottom).toBe(searchSurfaceStyles.radius.search);
+  expect(searchSurfaceStyles.shadows.search).toBe('none');
+  expect(searchSurfaceStyles.shadows.suggestions).toBe('none');
+  expect(searchSurfaceStyles.shadows.surface).toBe('rgba(32, 33, 36, 0.24) 0px 4px 7px 0px');
   await input.fill('codex live');
   await expect(input).toHaveValue('codex live');
   await expect(page.getByRole('option').filter({ hasText: 'codex live search' })).toBeVisible();
@@ -1247,6 +1493,9 @@ test('customizes the search box and shows local history and online suggestions',
   await input.fill('');
   await input.focus();
   await expect(page.getByRole('option').filter({ hasText: 'local history phrase' })).toHaveCount(0);
+  await expect(suggestionSurface).toHaveCount(0);
+  await expect(searchForm).toHaveCSS('border-bottom-color', 'rgba(223, 225, 229, 0.88)');
+  await expect(searchForm).toHaveCSS('box-shadow', 'rgba(32, 33, 36, 0.24) 0px 4px 7px 0px');
   await context.unroute('https://suggestqueries.google.com/**');
 });
 

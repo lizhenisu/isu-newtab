@@ -4,7 +4,16 @@ import { ChromeSyncAdapter } from '../../core/sync/chrome-adapter';
 import { SyncCoordinator } from '../../core/sync/coordinator';
 import { BrowserSyncStatusStore } from '../../core/sync/status-store';
 import { cacheWallhavenImage } from '../../core/wallpaper/cache';
-import { chooseRandomWallhaven, downloadWallhavenImage, nextRandomWallpaperState, rescheduleRandomWallpaper } from '../../core/wallpaper/random';
+import {
+  RANDOM_WALLPAPER_ASSET_KEY,
+  RANDOM_WALLPAPER_DISPLAY_PORT,
+  chooseRandomWallhaven,
+  downloadWallhavenImage,
+  isRandomWallpaperDisplayReadyMessage,
+  nextRandomWallpaperState,
+  rescheduleRandomWallpaper,
+  shouldDeferRandomWallpaperRefresh,
+} from '../../core/wallpaper/random';
 import type { AppConfig, AppLanguage } from '../../core/domain/types';
 import { refreshDesktopContextMenus, registerDesktopContextMenus } from '../../core/browser/context-menu-controller';
 import { getAppLanguagePreference } from '../../core/browser/language-preference';
@@ -20,6 +29,7 @@ const syncCoordinator = new SyncCoordinator({
 
 const RANDOM_WALLPAPER_ALARM = 'isu:wallpaper:random';
 let randomRefresh: Promise<void> | undefined;
+let readyRandomWallpaperDisplays = 0;
 
 export default defineBackground(() => {
   registerDesktopContextMenus();
@@ -30,6 +40,21 @@ export default defineBackground(() => {
   void appRepositories.config.initialize().then(async (config) => {
     await reconcileRandomWallpaper(config);
     await syncCoordinator.run();
+  });
+
+  browser.runtime.onConnect.addListener((port) => {
+    if (port.name !== RANDOM_WALLPAPER_DISPLAY_PORT) return;
+    let ready = false;
+    port.onMessage.addListener((message: unknown) => {
+      if (ready || !isRandomWallpaperDisplayReadyMessage(message)) return;
+      ready = true;
+      readyRandomWallpaperDisplays += 1;
+      void reconcileRandomWallpaper();
+    });
+    port.onDisconnect.addListener(() => {
+      if (!ready) return;
+      readyRandomWallpaperDisplays = Math.max(0, readyRandomWallpaperDisplays - 1);
+    });
   });
 
   browser.runtime.onMessage.addListener((message: unknown) => {
@@ -53,7 +78,7 @@ export default defineBackground(() => {
     if (areaName === 'sync' && Object.keys(changes).some((key) => key.startsWith('sync/'))) syncCoordinator.schedule(0);
   });
   browser.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === RANDOM_WALLPAPER_ALARM) void refreshRandomWallpaper();
+    if (alarm.name === RANDOM_WALLPAPER_ALARM) void reconcileRandomWallpaper();
   });
 });
 
@@ -88,16 +113,16 @@ async function reconcileRandomWallpaper(config?: AppConfig): Promise<void> {
   }
   const state = await appRepositories.config.getRandomWallpaperState();
   const nextAt = state ? Date.parse(state.nextRefreshAt) : 0;
-  if (!state || !Number.isFinite(nextAt) || nextAt <= Date.now()) {
+  const cachedImage = state ? await appRepositories.assets.getAsset(RANDOM_WALLPAPER_ASSET_KEY) : undefined;
+  if (shouldDeferRandomWallpaperRefresh(state, Boolean(cachedImage), readyRandomWallpaperDisplays > 0)) {
+    await browser.alarms.clear(RANDOM_WALLPAPER_ALARM);
+    return;
+  }
+  if (!state || !cachedImage || !Number.isFinite(nextAt) || nextAt <= Date.now()) {
     await refreshRandomWallpaper();
     return;
   }
   if (state.interval !== wallpaper.interval) {
-    const cachedImage = await appRepositories.assets.getAsset('wallpaper/random-current');
-    if (!cachedImage) {
-      await refreshRandomWallpaper();
-      return;
-    }
     const updated = rescheduleRandomWallpaper(state, wallpaper.interval);
     await appRepositories.config.saveRandomWallpaperState(updated, cachedImage);
     await browser.alarms.create(RANDOM_WALLPAPER_ALARM, { when: Date.parse(updated.nextRefreshAt) });

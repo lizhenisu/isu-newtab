@@ -6,7 +6,6 @@ import type { SearchHistoryEntry } from '../../../core/search/history';
 import { getHistoryForSource, recordSearchForSource } from '../../../core/search/history-provider';
 import { fetchSearchSuggestions } from '../../../core/search/suggestions';
 import { buildTextSearchTarget, buildVisualSearchTarget } from '../../../core/search/search-target';
-import { OverlayPortal } from './OverlayPortal';
 
 type SuggestionItem = {
   value: string;
@@ -22,7 +21,7 @@ export function SearchWidget({ preferences, historySource }: { preferences: Sear
   const inputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLFormElement>(null);
   const mountedRef = useRef(true);
-  const [suggestionPosition, setSuggestionPosition] = useState<SuggestionPosition>();
+  const [suggestionSurfaceMaxHeight, setSuggestionSurfaceMaxHeight] = useState<number>();
 
   useEffect(() => () => {
     mountedRef.current = false;
@@ -70,30 +69,24 @@ export function SearchWidget({ preferences, historySource }: { preferences: Sear
   const searchBackgroundAlpha = String(preferences.backgroundOpacity / 100);
   useLayoutEffect(() => {
     if (!suggestionsVisible) {
-      setSuggestionPosition(undefined);
+      setSuggestionSurfaceMaxHeight(undefined);
       return;
     }
-    const updatePosition = () => {
+    const updateAvailableHeight = () => {
       const search = searchRef.current;
       if (!search) return;
       const rect = search.getBoundingClientRect();
       const viewportPadding = 8;
-      const top = rect.bottom - 1;
-      setSuggestionPosition({
-        left: rect.left,
-        top,
-        width: rect.width,
-        maxHeight: Math.max(44, window.innerHeight - top - viewportPadding),
-      });
+      setSuggestionSurfaceMaxHeight(Math.max(rect.height + 44, window.innerHeight - rect.top - viewportPadding));
     };
-    updatePosition();
-    window.addEventListener('resize', updatePosition);
-    window.addEventListener('scroll', updatePosition, true);
-    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updatePosition);
+    updateAvailableHeight();
+    window.addEventListener('resize', updateAvailableHeight);
+    window.addEventListener('scroll', updateAvailableHeight, true);
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updateAvailableHeight);
     if (observer && searchRef.current) observer.observe(searchRef.current);
     return () => {
-      window.removeEventListener('resize', updatePosition);
-      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updateAvailableHeight);
+      window.removeEventListener('scroll', updateAvailableHeight, true);
       observer?.disconnect();
     };
   }, [items.length, preferences.widthPercent, suggestionsVisible]);
@@ -135,9 +128,20 @@ export function SearchWidget({ preferences, historySource }: { preferences: Sear
   return (
     <div className={`searchWidgetShell ${suggestionsVisible ? 'hasSuggestions' : ''}`} style={style} onBlur={(event) => {
       const relatedTarget = event.relatedTarget;
-      if (event.currentTarget.contains(relatedTarget) || (typeof Element !== 'undefined' && relatedTarget instanceof Element && relatedTarget.closest('.searchSuggestionsLayer'))) return;
+      if (event.currentTarget.contains(relatedTarget)) return;
       setOpen(false);
     }}>
+      {suggestionsVisible && suggestionSurfaceMaxHeight && <div className="searchSuggestionsSurface" style={{ '--search-suggestions-max-height': `${suggestionSurfaceMaxHeight}px` } as React.CSSProperties}>
+        <ul id="search-suggestions" className="searchSuggestions" role="listbox">
+          {items.map((item, index) => (
+            <li key={`${item.source}:${item.value}`} id={`search-suggestion-${index}`} role="option" aria-selected={index === activeIndex}>
+              <button type="button" className={index === activeIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => void search(item.value)}>
+                <span className="suggestionIcon" aria-hidden="true">{item.source === 'history' ? <HistoryIcon /> : <SearchIcon />}</span><span>{item.value}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>}
       <form ref={searchRef} className="search" role="search" onSubmit={submit}>
         <button type="submit" className="searchSubmit" aria-label={t('submitSearch')} disabled={!query.trim()}>
           <SearchIcon />
@@ -159,22 +163,9 @@ export function SearchWidget({ preferences, historySource }: { preferences: Sear
         {query && <button type="button" className="searchClear" aria-label={t('clearSearchQuery')} onMouseDown={(event) => event.preventDefault()} onClick={() => { setQuery(''); setActiveIndex(-1); inputRef.current?.focus(); }}>×</button>}
         <span className="googleSearchActions">{preferences.engine === 'google' && <span aria-hidden="true"><VoiceIcon /></span>}<button type="button" className="visualSearchButton" aria-label={t(preferences.engine === 'google' ? 'openGoogleVisualSearch' : 'openBingVisualSearch')} onClick={() => { setOpen(false); navigateCurrentTab(buildVisualSearchTarget(preferences.engine, currentLanguageTag())); }}>{preferences.engine === 'google' ? <GoogleVisualSearchIcon /> : <VisualSearchIcon />}</button></span>
       </form>
-      {suggestionsVisible && suggestionPosition && <OverlayPortal className="searchSuggestionsLayer">
-        <ul id="search-suggestions" className="searchSuggestions" role="listbox" style={{ left: `${suggestionPosition.left}px`, top: `${suggestionPosition.top}px`, width: `${suggestionPosition.width}px`, maxHeight: `${suggestionPosition.maxHeight}px`, '--search-background-alpha': searchBackgroundAlpha } as React.CSSProperties}>
-          {items.map((item, index) => (
-            <li key={`${item.source}:${item.value}`} id={`search-suggestion-${index}`} role="option" aria-selected={index === activeIndex}>
-              <button type="button" className={index === activeIndex ? 'active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => void search(item.value)}>
-                <span className="suggestionIcon" aria-hidden="true">{item.source === 'history' ? <HistoryIcon /> : <SearchIcon />}</span><span>{item.value}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </OverlayPortal>}
     </div>
   );
 }
-
-type SuggestionPosition = { left: number; top: number; width: number; maxHeight: number };
 
 function SearchIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.2" /><path d="m15.4 15.4 4.3 4.3" /></svg>;

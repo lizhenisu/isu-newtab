@@ -77,7 +77,7 @@
   "followBrowserLanguage": { "message": "Follow browser language" },
   "theme": { "message": "Theme" },
   "blur": { "message": "Blur" },
-  "cardSize": { "message": "Card size" },
+  "widgetSize": { "message": "Widget size" },
   "wallpaper": { "message": "Wallpaper" },
   "solid": { "message": "Solid" },
   "builtin": { "message": "Built in" },

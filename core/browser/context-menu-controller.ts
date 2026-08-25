@@ -62,7 +62,7 @@ async function createDesktopContextMenus(): Promise<void> {
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.rename, parentId: CONTEXT_MENU_IDS.root, title: t('rename'), ...common });
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.delete, parentId: CONTEXT_MENU_IDS.root, title: t('delete'), ...common });
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.hide, parentId: CONTEXT_MENU_IDS.root, title: t('hide'), ...common });
-  browser.contextMenus.create({ id: CONTEXT_MENU_IDS.size, parentId: CONTEXT_MENU_IDS.root, title: t('cardSize'), ...common });
+  browser.contextMenus.create({ id: CONTEXT_MENU_IDS.size, parentId: CONTEXT_MENU_IDS.root, title: t('widgetSize'), ...common });
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.sizeSmall, parentId: CONTEXT_MENU_IDS.size, type: 'radio', title: t('small'), ...common });
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.sizeMedium, parentId: CONTEXT_MENU_IDS.size, type: 'radio', title: t('medium'), ...common });
   browser.contextMenus.create({ id: CONTEXT_MENU_IDS.sizeLarge, parentId: CONTEXT_MENU_IDS.size, type: 'radio', title: t('large'), ...common });

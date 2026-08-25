@@ -228,7 +228,7 @@ function PieceCell({ piece, context, dragging, activeDragPieceId, displaced, fol
       if (piece.kind !== 'add-shortcut' && (event.target as HTMLElement).closest('button,input,textarea,select,[contenteditable="true"]')) return;
       draggable.listeners?.onPointerDown?.(event);
     }}>
-    <div className="pieceContent">{content}</div>
+    <div className={`pieceContent ${piece.kind === 'system-widget' && piece.payloadRef === 'search' ? 'pieceContent--search' : ''}`}>{content}</div>
   </section>;
 }
 

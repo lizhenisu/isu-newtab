@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chooseRandomWallhaven, nextRandomWallpaperState, wallpaperRefreshIntervalMs } from '../../core/wallpaper/random';
+import { chooseRandomWallhaven, nextRandomWallpaperState, shouldDeferRandomWallpaperRefresh, wallpaperRefreshIntervalMs } from '../../core/wallpaper/random';
 import { fetchWallhavenRandom } from '../../core/wallpaper/wallhaven';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -32,5 +32,19 @@ describe('random Wallhaven wallpaper', () => {
     expect(wallpaperRefreshIntervalMs('5h')).toBe(5 * 60 * 60_000);
     expect(wallpaperRefreshIntervalMs('1d')).toBe(24 * 60 * 60_000);
     expect(nextRandomWallpaperState({ imageUrl: 'https://w.wallhaven.cc/full/ne/wallhaven-new.jpg', sourceUrl: 'https://wallhaven.cc/w/new', wallpaperId: 'new' }, '1h', new Date('2026-08-23T00:00:00Z')).nextRefreshAt).toBe('2026-08-23T01:00:00.000Z');
+  });
+
+  it('waits for a page to display an expired cached wallpaper before refreshing it', () => {
+    const expired = nextRandomWallpaperState(
+      { imageUrl: 'https://w.wallhaven.cc/full/ol/wallhaven-old.jpg', sourceUrl: 'https://wallhaven.cc/w/old', wallpaperId: 'old' },
+      '1h',
+      new Date('2026-08-23T00:00:00Z'),
+    );
+    const afterExpiry = Date.parse(expired.nextRefreshAt) + 1;
+
+    expect(shouldDeferRandomWallpaperRefresh(expired, true, false, afterExpiry)).toBe(true);
+    expect(shouldDeferRandomWallpaperRefresh(expired, true, true, afterExpiry)).toBe(false);
+    expect(shouldDeferRandomWallpaperRefresh(expired, false, false, afterExpiry)).toBe(false);
+    expect(shouldDeferRandomWallpaperRefresh(undefined, false, false, afterExpiry)).toBe(false);
   });
 });

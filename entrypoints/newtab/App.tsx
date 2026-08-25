@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { browser } from 'wxt/browser';
 import { t } from '../../core/browser/i18n';
 import { DEFAULT_GROUP_ID, type Shortcut, type ShortcutGroup } from '../../core/domain/types';
 import { DEFAULT_SOLID_WALLPAPER_COLOR } from '../../core/domain/defaults';
 import { wallpaperTone } from '../../core/domain/wallpaper-tone';
+import { builtinWallpaperBackground } from '../../core/wallpaper/builtin';
 import { createWallpaperBootstrapThumbnail, getWallpaperBootstrapPreview, setWallpaperBootstrapPreview } from '../../core/wallpaper/bootstrap-preview';
-import { RANDOM_WALLPAPER_ASSET_KEY, type RandomWallpaperState } from '../../core/wallpaper/random';
+import { RANDOM_WALLPAPER_ASSET_KEY, RANDOM_WALLPAPER_DISPLAY_PORT, type RandomWallpaperState } from '../../core/wallpaper/random';
 import type { WidgetPosition } from '../../core/domain/widgets';
 import { appRepositories } from '../../core/storage/repository';
 import { useAppStore } from '../../core/state/store';
@@ -33,6 +35,10 @@ export function App() {
   useEffect(() => { void initialize(); return appRepositories.config.subscribe(() => void refresh()); }, [initialize, refresh]);
   useEffect(() => { const timer = window.setInterval(() => setClock(new Date()), 1000); return () => window.clearInterval(timer); }, []);
   const wallpaperBackground = useWallpaperBackground(config?.appearance.wallpaper.value);
+
+  useRandomWallpaperDisplayReady(
+    wallpaperBackground?.source === 'asset' && wallpaperBackground.identity.startsWith('wallhaven-random:'),
+  );
 
   if (loading || !config || !searchHistory.source || !appLanguage.language) return <div className="loading">{error ?? '…'}</div>;
   const theme = config.appearance.theme.value;
@@ -70,7 +76,7 @@ export function App() {
   };
 
   return (
-    <div className="app" data-theme={theme} data-wallpaper-tone={backgroundTone} data-size={config.appearance.cardSize.value} style={{ '--blur': `${appearancePreview.blur ?? config.appearance.blur.value}px` } as React.CSSProperties}>
+    <div className="app" data-theme={theme} data-wallpaper-tone={backgroundTone} style={{ '--blur': `${appearancePreview.blur ?? config.appearance.blur.value}px` } as React.CSSProperties}>
       <WallpaperBackdrop background={wallpaperBackground} />
       <div className="backdrop" />
       <button className="settingsButton" type="button" onClick={() => setSettingsOpen(true)} aria-label={t('settings')}>⚙</button>
@@ -89,6 +95,7 @@ export function App() {
 type WallpaperBackground = {
   identity: string;
   background: string;
+  source: 'asset' | 'bootstrap' | 'static';
   dispose?: () => void;
 };
 
@@ -113,12 +120,13 @@ function useWallpaperBackground(wallpaper?: NonNullable<ReturnType<typeof useApp
     void load();
     return appRepositories.config.subscribe(() => void load());
   }, [wallpaper?.type]);
+  const randomBootstrapIdentity = bootstrapPreview?.identity.startsWith('wallhaven-random:') ? bootstrapPreview.identity : undefined;
   const localAsset = wallpaper?.type === 'upload'
     ? { key: wallpaper.assetKey, identity: `upload:${wallpaper.assetKey}` }
     : wallpaper?.type === 'wallhaven'
       ? { key: 'wallpaper/wallhaven-current', identity: `wallhaven:${wallpaper.imageUrl}` }
-      : wallpaper?.type === 'wallhaven-random' && randomState
-        ? { key: RANDOM_WALLPAPER_ASSET_KEY, identity: `wallhaven-random:${randomState.imageUrl}` }
+      : wallpaper?.type === 'wallhaven-random' && (randomState || randomBootstrapIdentity)
+        ? { key: RANDOM_WALLPAPER_ASSET_KEY, identity: randomState ? `wallhaven-random:${randomState.imageUrl}` : randomBootstrapIdentity! }
       : undefined;
   useEffect(() => {
     let active = true;
@@ -132,11 +140,12 @@ function useWallpaperBackground(wallpaper?: NonNullable<ReturnType<typeof useApp
         URL.revokeObjectURL(currentUrl);
         objectUrlDisposers.current.delete(dispose);
       };
+      const background = `url("${currentUrl}")`;
       objectUrlDisposers.current.add(dispose);
-      setLocalBackground({ identity: localAsset.identity, background: `url("${currentUrl}")`, dispose });
+      setLocalBackground({ identity: localAsset.identity, background, source: 'asset', dispose });
       if (bootstrapPreview?.identity !== localAsset.identity) {
-        void createWallpaperBootstrapThumbnail(blob).then((background) => {
-          if (active) setWallpaperBootstrapPreview({ identity: localAsset.identity, background });
+        void createWallpaperBootstrapThumbnail(blob).then((preview) => {
+          if (active) setWallpaperBootstrapPreview({ identity: localAsset.identity, background: preview });
         }).catch(() => undefined);
       }
     });
@@ -146,25 +155,50 @@ function useWallpaperBackground(wallpaper?: NonNullable<ReturnType<typeof useApp
   useEffect(() => {
     if (!wallpaper) return;
     if (wallpaper.type === 'solid') setWallpaperBootstrapPreview({ identity: `solid:${wallpaper.color}`, background: wallpaper.color });
-    else if (wallpaper.type === 'builtin') setWallpaperBootstrapPreview({ identity: `builtin:${wallpaper.assetId}`, background: builtinWallpapers[wallpaper.assetId as keyof typeof builtinWallpapers] ?? builtinWallpapers.aurora });
+    else if (wallpaper.type === 'builtin') setWallpaperBootstrapPreview({ identity: `builtin:${wallpaper.assetId}`, background: builtinWallpaperBackground(wallpaper.assetId) });
     else if (wallpaper.type === 'unsplash') setWallpaperBootstrapPreview({ identity: `unsplash:${wallpaper.imageUrl}`, background: `url("${wallpaper.imageUrl}")` });
   }, [wallpaper]);
   return useMemo(() => {
-    if (!wallpaper) return bootstrapPreview ? { identity: bootstrapPreview.identity, background: bootstrapPreview.background } : undefined;
-    if (wallpaper.type === 'solid') return { identity: `solid:${wallpaper.color}`, background: wallpaper.color };
+    if (!wallpaper) return bootstrapPreview ? { identity: bootstrapPreview.identity, background: bootstrapPreview.background, source: 'bootstrap' } : undefined;
+    if (wallpaper.type === 'solid') return { identity: `solid:${wallpaper.color}`, background: wallpaper.color, source: 'static' };
     if (wallpaper.type === 'upload' || wallpaper.type === 'wallhaven') {
       const identity = wallpaper.type === 'upload' ? `upload:${wallpaper.assetKey}` : `wallhaven:${wallpaper.imageUrl}`;
       if (localBackground?.identity === identity) return localBackground;
-      return bootstrapPreview?.identity === identity ? { identity, background: bootstrapPreview.background } : undefined;
+      return bootstrapPreview?.identity === identity ? { identity, background: bootstrapPreview.background, source: 'bootstrap' } : undefined;
     }
     if (wallpaper.type === 'wallhaven-random') {
-      const identity = randomState ? `wallhaven-random:${randomState.imageUrl}` : 'wallhaven-random:pending';
+      const identity = randomState ? `wallhaven-random:${randomState.imageUrl}` : undefined;
       if (localBackground?.identity === identity) return localBackground;
-      return bootstrapPreview?.identity === identity ? { identity, background: bootstrapPreview.background } : undefined;
+      if (identity && bootstrapPreview?.identity === identity) return { identity, background: bootstrapPreview.background, source: 'bootstrap' };
+      return bootstrapPreview?.identity.startsWith('wallhaven-random:')
+        ? { identity: bootstrapPreview.identity, background: bootstrapPreview.background, source: 'bootstrap' }
+        : undefined;
     }
-    if (wallpaper.type === 'unsplash') return { identity: `unsplash:${wallpaper.imageUrl}`, background: `url("${wallpaper.imageUrl}")` };
-    return { identity: `builtin:${wallpaper.assetId}`, background: builtinWallpapers[wallpaper.assetId as keyof typeof builtinWallpapers] ?? builtinWallpapers.aurora };
+    if (wallpaper.type === 'unsplash') return { identity: `unsplash:${wallpaper.imageUrl}`, background: `url("${wallpaper.imageUrl}")`, source: 'static' };
+    return { identity: `builtin:${wallpaper.assetId}`, background: builtinWallpaperBackground(wallpaper.assetId), source: 'static' };
   }, [bootstrapPreview, localBackground, randomState, wallpaper]);
+}
+
+function useRandomWallpaperDisplayReady(displayed: boolean): void {
+  useEffect(() => {
+    if (!displayed) return;
+    let active = true;
+    let port: ReturnType<typeof browser.runtime.connect> | undefined;
+    let nestedFrame: number | undefined;
+    const frame = window.requestAnimationFrame(() => {
+      nestedFrame = window.requestAnimationFrame(() => {
+        if (!active) return;
+        port = browser.runtime.connect({ name: RANDOM_WALLPAPER_DISPLAY_PORT });
+        port.postMessage({ type: 'ready' });
+      });
+    });
+    return () => {
+      active = false;
+      window.cancelAnimationFrame(frame);
+      if (nestedFrame !== undefined) window.cancelAnimationFrame(nestedFrame);
+      port?.disconnect();
+    };
+  }, [displayed]);
 }
 
 type FrozenWallpaperLayer = WallpaperBackground & {
@@ -181,7 +215,7 @@ type WallpaperLayers = {
 const WALLPAPER_FADE_DURATION_MS = 2_000;
 
 function WallpaperBackdrop({ background }: { background?: WallpaperBackground }) {
-  const initialBackground = useRef<WallpaperBackground>({ identity: 'initial-white', background: DEFAULT_SOLID_WALLPAPER_COLOR }).current;
+  const initialBackground = useRef<WallpaperBackground>({ identity: 'initial-white', background: DEFAULT_SOLID_WALLPAPER_COLOR, source: 'static' }).current;
   const [layers, setLayers] = useState<WallpaperLayers>(() => ({
     frozen: [{ ...(background ?? initialBackground), key: 'wallpaper:initial', opacity: 1 }],
     transitionId: 0,
@@ -221,7 +255,17 @@ function WallpaperBackdrop({ background }: { background?: WallpaperBackground })
     if (!background) return;
     const active = layersRef.current;
     const stableCurrent = active.frozen.length === 1 ? active.frozen[0] : undefined;
-    if (stableCurrent?.identity === background.identity && !active.incoming) return;
+    if (stableCurrent?.identity === background.identity && stableCurrent.background === background.background && !active.incoming) return;
+    if (stableCurrent?.identity === background.identity && !active.incoming) {
+      const id = ++transitionId.current;
+      let cancelled = false;
+      void preloadWallpaper(background.background).then(() => {
+        if (cancelled || id !== transitionId.current) return;
+        commitLayers({ frozen: [{ ...background, key: `wallpaper:stable:${id}`, opacity: 1 }], transitionId: id });
+        disposeLayers([stableCurrent], background);
+      }, () => undefined);
+      return () => { cancelled = true; };
+    }
     if (stableCurrent?.identity === background.identity && active.incoming) {
       const id = ++transitionId.current;
       cancelScheduledCallbacks();
@@ -265,7 +309,7 @@ function WallpaperBackdrop({ background }: { background?: WallpaperBackground })
     else layerElements.current.delete(key);
   };
   const visibleCurrent = layers.incoming ?? layers.frozen.at(-1);
-  return <div className={`wallpaperBackdrop ${layers.incoming ? 'wallpaperBackdrop--transitioning' : ''}`} aria-hidden="true" data-wallpaper-current={visibleCurrent?.identity} data-wallpaper-incoming={layers.incoming?.identity}>
+  return <div className={`wallpaperBackdrop ${layers.incoming ? 'wallpaperBackdrop--transitioning' : ''}`} aria-hidden="true" data-wallpaper-current={visibleCurrent?.identity} data-wallpaper-source={visibleCurrent?.source} data-wallpaper-incoming={layers.incoming?.identity}>
     {layers.frozen.map((layer) => <div key={layer.key} ref={registerLayer(layer.key)} className="wallpaperLayer wallpaperLayer--frozen" data-wallpaper-layer={layer.identity} style={style(layer)} />)}
     {layers.incoming && <div key={layers.incoming.key} ref={registerLayer(layers.incoming.key)} className="wallpaperLayer wallpaperLayer--current wallpaperLayer--incoming" data-wallpaper-layer={layers.incoming.identity} style={style(layers.incoming)} onAnimationEnd={(event) => {
       if (event.animationName === 'wallpaper-dissolve') finishTransition(layers.transitionId);
@@ -298,12 +342,6 @@ function preloadWallpaper(background: string): Promise<void> {
     image.src = url;
   });
 }
-
-const builtinWallpapers = {
-  aurora: 'radial-gradient(circle at 15% 20%, #48d7a9 0, transparent 35%), radial-gradient(circle at 80% 30%, #605be9 0, transparent 38%), #111a34',
-  dusk: 'linear-gradient(135deg, #4c1d4f, #c8555b 48%, #f5b56b)',
-  ocean: 'linear-gradient(145deg, #061d33, #0c7690 55%, #61c0bf)',
-};
 
 function UnsplashAttribution({ wallpaper }: { wallpaper: Extract<NonNullable<ReturnType<typeof useAppStore.getState>['config']>['appearance']['wallpaper']['value'], { type: 'unsplash' }> }) {
   return <footer className="photoAttribution">{t('photoBy')} <a href={wallpaper.photographerUrl} target="_blank" rel="noreferrer">{wallpaper.photographerName}</a> / <a href={wallpaper.sourceUrl} target="_blank" rel="noreferrer">Unsplash</a></footer>;

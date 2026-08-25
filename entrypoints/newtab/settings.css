@@ -186,24 +186,24 @@
   overflow: hidden;
   border: 2px solid transparent;
   border-radius: 12px;
+  transition: border-color .15s ease;
 }
 .modal--drawer .colorChoice { display: grid; grid-template-columns: 1fr 42px; align-items: center; padding: 10px 12px; color: #3c4043; background: #f8fafd; cursor: pointer; }
 .modal--drawer .colorChoice:focus-visible { outline: 2px solid #1a73e8; outline-offset: 2px; }
 .modal--drawer .colorChoice input[type="color"] { width: 38px; height: 38px; padding: 3px; border: 1px solid #dadce0; border-radius: 50%; background: #fff; box-shadow: none; cursor: pointer; }
-.modal--drawer .builtinPreview { color: #fff; font-weight: 600; text-shadow: 0 1px 4px rgba(0,0,0,.55); }
-.modal--drawer .builtinPreview.aurora { background: radial-gradient(circle at 24% 22%, #8ef0c5 0 8%, transparent 28%), linear-gradient(140deg,#173d59 4%,#247f72 47%,#725bd5); }
-.modal--drawer .builtinPreview.dusk { background: linear-gradient(135deg,#6d275f,#e8906e); }
-.modal--drawer .builtinPreview.ocean { background: linear-gradient(150deg,#031d3d 0%,#086d99 52%,#69d5d0 100%); }
-.modal--drawer .builtinPreview.aurora:hover { background: radial-gradient(circle at 24% 22%, #8ef0c5 0 8%, transparent 28%), linear-gradient(140deg,#173d59 4%,#247f72 47%,#725bd5); }
-.modal--drawer .builtinPreview.dusk:hover { background: linear-gradient(135deg,#6d275f,#e8906e); }
-.modal--drawer .builtinPreview.ocean:hover { background: linear-gradient(150deg,#031d3d 0%,#086d99 52%,#69d5d0 100%); }
+.modal--drawer button.builtinPreview,
+.modal--drawer button.builtinPreview:hover { color: #fff; background: var(--builtin-wallpaper); font-weight: 600; text-shadow: 0 1px 4px rgba(0,0,0,.55); }
 .modal--drawer .wallpaperUploadChoice,
 .modal--drawer .wallpaperRandomChoice { color: #3c4043; background: #f8fafd; }
 .modal--drawer .wallpaperRandomChoice { background: linear-gradient(135deg, #1a73e8, #7baaf7); color: #fff; }
 .modal--drawer .colorChoice.active,
 .modal--drawer .builtinPreview.active,
 .modal--drawer .wallpaperUploadChoice.active,
-.modal--drawer .wallpaperRandomChoice.active { border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,.12); }
+.modal--drawer .wallpaperRandomChoice.active { border-width: 2px; border-color: #1a73e8; box-shadow: 0 0 0 2px rgba(26,115,232,.12); }
+.modal--drawer .colorChoice.active:hover,
+.modal--drawer .builtinPreview.active:hover,
+.modal--drawer .wallpaperUploadChoice.active:hover,
+.modal--drawer .wallpaperRandomChoice.active:hover { border-color: #d2e3fc; }
 .modal--drawer .randomWallpaperControls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; padding: 12px; border: 1px solid #e8eaed; border-radius: 12px; background: #f8fafd; }
 .modal--drawer .randomWallpaperControls small { grid-column: 1 / -1; color: #5f6368; }
 

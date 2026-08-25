@@ -1,4 +1,7 @@
 :root {
+  --search-surface-border: rgba(223,225,229,.88);
+  --search-surface-radius: 28px;
+  --search-surface-shadow: 0 4px 7px rgba(32,33,36,.24);
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -48,6 +51,21 @@ button { cursor: pointer; }
 .pieceBoard .piece { width: 100%; height: 100%; max-width: none; align-self: stretch; justify-self: stretch; }
 .pieceContent { display: grid; place-items: center; width: 100%; height: 100%; min-width: 0; min-height: 0; }
 .piece--system-widget .pieceContent { container-type: inline-size; overflow: hidden; }
+.piece--system-widget .pieceContent--search {
+  /* A definite 100% height makes this grid item resolve to the form's
+     intrinsic 60px track before the parent can stretch it.  Let the parent
+     grid size the item instead so the search shadow has the full 2-row tile. */
+  align-self: stretch;
+  height: auto;
+  overflow: visible;
+}
+.piece--system-widget.dashboardWidget--search {
+  /* The default implicit grid track is content-sized (60px), even though the
+     search piece is two rows tall. Give this piece one explicit flexible track
+     so its content owns the full 80px tile. */
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+}
 .piece--system-widget .greeting { width: 100%; max-width: 100%; margin: 0; overflow: hidden; font-size: clamp(13px, 10cqw, 48px); text-overflow: clip; white-space: nowrap; }
 .piece--system-widget .greeting--compact { font-size: clamp(10px, min(2.1vw, 7cqw), 28px); }
 .piece--system-widget .dailyQuote { display: grid; grid-template-rows: minmax(0, 1fr) auto; align-items: center; width: 100%; height: 100%; max-width: 100%; margin: 0; overflow: hidden; }
@@ -68,24 +86,49 @@ button { cursor: pointer; }
   box-shadow: inset 0 1px 1px rgba(255,255,255,.58), inset 1px 0 1px rgba(255,255,255,.15), inset 0 -1px 1px rgba(255,255,255,.06);
 }
 .piece--system-widget .quickNote::after { display: none; }
-.weatherWidget { position: relative; display: grid; align-items: center; width: min(100%, 340px); height: 100%; padding: 12px 16px; border: 1px solid var(--glass-edge); border-radius: 22px; color: var(--hero-text); background: linear-gradient(135deg, rgba(255,255,255,.23), rgba(140,196,224,.09)); backdrop-filter: blur(calc(var(--blur) + 10px)) saturate(145%); box-shadow: inset 0 1px 1px rgba(255,255,255,.55), inset 0 -1px 1px rgba(255,255,255,.08); }
+.weatherWidget { position: relative; display: grid; align-items: center; width: min(100%, 340px); height: 100%; min-width: 0; min-height: 0; padding: 12px 16px; overflow: hidden; border: 1px solid var(--glass-edge); border-radius: 22px; color: var(--hero-text); background: linear-gradient(135deg, rgba(255,255,255,.23), rgba(140,196,224,.09)); backdrop-filter: blur(calc(var(--blur) + 10px)) saturate(145%); box-shadow: inset 0 1px 1px rgba(255,255,255,.55), inset 0 -1px 1px rgba(255,255,255,.08); }
 .weatherWidget:not(.weatherWidget--status) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; gap: 3px; }
 .weatherWidget--status { grid-template-columns: auto minmax(0, 1fr) auto; }
 .weatherWidget--status strong { display: block; font-size: clamp(14px, 4cqw, 18px); }
 .weatherWidget--status p { margin: 3px 0 0; color: var(--hero-muted); font-size: clamp(11px, 3cqw, 13px); line-height: 1.3; }
-.weatherHeader { min-width: 0; width: 100%; color: var(--hero-muted); font-size: clamp(10px, 2.8cqw, 12px); }
+.weatherHeader { min-width: 0; width: 100%; color: var(--hero-muted); font-size: clamp(10px, 2.8cqw, 12px); line-height: 1.15; }
 .weatherLocationName { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.weatherCurrent { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; }
+.weatherCurrent { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; min-height: 0; }
 .weatherTemperature { display: inline-flex; align-items: baseline; min-width: 0; white-space: nowrap; }
 .weatherCurrent strong { font-size: clamp(30px, 10cqw, 48px); font-weight: 420; letter-spacing: -.06em; line-height: .9; }
 .weatherTemperature > span { margin-left: 2px; color: var(--hero-muted); font-size: clamp(10px, 2.8cqw, 12px); }
 .weatherCurrent > span:last-child { min-width: 0; overflow: hidden; color: var(--hero-muted); font-size: clamp(11px, 3.2cqw, 14px); text-overflow: ellipsis; white-space: nowrap; }
-.weatherDetails { display: flex; flex-wrap: wrap; gap: 3px 10px; color: var(--hero-muted); font-size: clamp(10px, 2.8cqw, 12px); }
+.weatherDetails { display: flex; flex-wrap: wrap; gap: 3px 10px; min-width: 0; min-height: 0; color: var(--hero-muted); font-size: clamp(10px, 2.8cqw, 12px); line-height: 1.15; }
+.weatherDetails span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .weatherIcon { width: clamp(34px, 11cqw, 48px); height: clamp(34px, 11cqw, 48px); overflow: visible; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.6; }
 .weatherAction { padding: 7px 10px; border: 1px solid rgba(255,255,255,.45); border-radius: 999px; color: var(--hero-text); background: rgba(255,255,255,.14); font-size: clamp(10px, 3cqw, 12px); white-space: nowrap; }
 .weatherAction:hover { background: rgba(255,255,255,.25); }
 .app[data-wallpaper-tone="light"] .weatherWidget { border-color: rgba(23,32,51,.18); background: rgba(255,255,255,.38); }
 .app[data-wallpaper-tone="light"] .weatherAction { border-color: rgba(23,32,51,.2); background: rgba(255,255,255,.62); }
+@container (max-width: 224px) {
+  .weatherWidget { padding: 8px 10px; border-radius: 18px; }
+  .weatherWidget:not(.weatherWidget--status) { gap: 2px; }
+  .weatherHeader { font-size: 10px; line-height: 1.1; }
+  .weatherCurrent { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; gap: 1px 5px; }
+  .weatherIcon { grid-row: span 2; width: 28px; height: 28px; stroke-width: 2.3; }
+  .weatherTemperature { grid-column: 2; grid-row: 1; }
+  .weatherCurrent strong { font-size: clamp(26px, 18cqw, 30px); }
+  .weatherTemperature > span { font-size: 10px; }
+  .weatherCurrent > span:last-child { grid-column: 2; grid-row: 2; overflow: visible; font-size: 10px; line-height: 1.1; text-overflow: clip; white-space: normal; overflow-wrap: anywhere; }
+  .weatherDetails { gap: 2px 5px; font-size: clamp(9px, 6cqw, 11px); line-height: 1.1; }
+}
+@container (max-width: 130px) {
+  .weatherWidget { padding: 4px 6px; border-radius: 14px; }
+  .weatherWidget:not(.weatherWidget--status) { gap: 1px; }
+  .weatherHeader { font-size: 8px; }
+  .weatherCurrent { gap: 1px 3px; }
+  .weatherIcon { width: 22px; height: 22px; stroke-width: 2.1; }
+  .weatherCurrent strong { font-size: 24px; }
+  .weatherTemperature > span, .weatherCurrent > span:last-child { font-size: 8px; }
+  .weatherDetails { gap: 0 3px; font-size: 8px; line-height: 1.05; }
+  .weatherWidget--status { grid-template-columns: auto minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; gap: 3px; }
+  .weatherWidget--status .weatherAction { grid-column: 1 / -1; justify-self: end; padding: 3px 6px; font-size: 8px; }
+}
 .pieceShortcut, .pieceFolder, .pieceAdd { display: grid; place-items: center; align-content: center; gap: 6px; width: 100%; height: 100%; min-width: 0; padding: 3px; border: 0; color: var(--hero-text); background: transparent; text-decoration: none; }
 .pieceShortcut > span:last-child, .pieceFolder strong, .pieceAdd strong { max-width: 100%; overflow: hidden; color: var(--hero-muted); font-size: 12px; font-weight: 520; line-height: 1.2; text-overflow: ellipsis; text-shadow: 0 2px 7px rgba(0,0,0,.62); white-space: nowrap; }
 .pieceIcon, .pieceAdd > span { display: grid; place-items: center; width: 58px; height: 58px; border: 1px solid rgba(255,255,255,.66); border-radius: 17px; background: linear-gradient(145deg, rgba(255,255,255,.98), rgba(219,234,243,.78)); box-shadow: inset 1px 1px 1px #fff, inset -1px -1px 1px rgba(86,119,140,.2), 0 11px 24px rgba(0,0,0,.28); }
@@ -157,12 +200,11 @@ button { cursor: pointer; }
 .focusState.active i { background: #71e5b3; box-shadow: 0 0 12px rgba(113,229,179,.8); }
 .searchWidgetShell { position: relative; left: 50%; justify-self: start; width: min(var(--search-width, 42.4vw), calc(100vw - 28px)); max-width: none; transform: translateX(-50%); }
 .dashboardWidget--search:focus-within { z-index: 7; }
-.search { z-index: 1; display: flex; align-items: center; width: 100%; height: 60px; margin: 24px auto 0; padding: 0 16px 0 14px; overflow: hidden; border: 1px solid rgba(223,225,229,.88); border-radius: 30px; color: #202124; background: rgba(255,255,255,var(--search-background-alpha, 1)); backdrop-filter: none; box-shadow: 0 1px 6px rgba(32,33,36,.28); }
+.search { position: relative; z-index: 1; display: flex; align-items: center; width: 100%; height: 60px; margin: 24px auto 0; padding: 0 16px 0 14px; overflow: hidden; border: 1px solid var(--search-surface-border); border-radius: var(--search-surface-radius); color: #202124; background: rgba(255,255,255,var(--search-background-alpha, 1)); backdrop-filter: none; box-shadow: var(--search-surface-shadow); }
 .searchWidgetShell.hasSuggestions .search,
-.searchWidgetShell.hasSuggestions .search:focus-within { border-color: rgba(223,225,229,.88); border-radius: 28px 28px 0 0; background: rgba(255,255,255,var(--search-background-alpha, 1)); box-shadow: none; }
-.searchSuggestionsLayer,
-.searchSuggestionsLayer { position: fixed; z-index: 1000; inset: 0; pointer-events: none; }
-.searchSuggestions { position: fixed; z-index: 1; margin: 0; padding: 8px 12px 15px; overflow-x: hidden; overflow-y: auto; list-style: none; border: 0; border-radius: 0 0 28px 28px; color: #202124; background: rgba(255,255,255,var(--search-background-alpha, 1)); box-shadow: 0 4px 7px rgba(32,33,36,.24); pointer-events: auto; transition: background-color .2s ease; }
+.searchWidgetShell.hasSuggestions .search:focus-within { border-color: transparent; border-radius: var(--search-surface-radius) var(--search-surface-radius) 0 0; background: transparent; box-shadow: none; }
+.searchSuggestionsSurface { position: absolute; z-index: 0; top: 0; left: 0; width: 100%; max-height: var(--search-suggestions-max-height); overflow: hidden; border: 1px solid var(--search-surface-border); border-radius: var(--search-surface-radius); color: #202124; background: rgba(255,255,255,var(--search-background-alpha, 1)); box-shadow: var(--search-surface-shadow); pointer-events: auto; }
+.searchSuggestions { max-height: calc(var(--search-suggestions-max-height) - 60px); margin: 60px 0 0; padding: 8px 12px 15px; overflow-x: hidden; overflow-y: auto; list-style: none; background: transparent; }
 .searchSuggestions li { margin: 0; }
 .searchSuggestions button { display: grid; grid-template-columns: 32px minmax(0,1fr); align-items: center; gap: 7px; width: 100%; min-height: 44px; padding: 7px 10px; border: 0; border-radius: 0; color: #202124; background: transparent; font-size: 17px; line-height: 1.35; text-align: left; }
 .searchSuggestions button:hover,
@@ -232,9 +274,11 @@ button { cursor: pointer; }
 .timerModes button,
 .groupTab,
 .primaryActions button,
-.search,
 .quickNote {
   transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease, background-color .2s ease;
+}
+.search {
+  transition: transform .2s ease;
 }
 .iconButton:hover,
 .roundControl:hover {
@@ -246,26 +290,18 @@ button { cursor: pointer; }
 .iconButton:active { transform: translateY(0) scale(.95); }
 .timerModes button:hover,
 .groupTab:hover { background-color: rgba(255,255,255,.09); }
-.search:focus-within,
 .quickNote:focus-within {
   border-color: rgba(255,255,255,.62);
   box-shadow: inset 0 1px 2px rgba(255,255,255,.75), inset 0 -1px 1px rgba(255,255,255,.1), 0 18px 44px rgba(2,10,22,.34), 0 0 0 3px rgba(202,235,255,.1);
 }
+.search:focus-within { border-color: var(--search-surface-border); box-shadow: var(--search-surface-shadow); }
 .piece--system-widget .quickNote:focus-within {
   /* Focus still changes the edge, but must not cast a shadow outside the
      piece when the note textarea receives focus. */
   box-shadow: inset 0 1px 1px rgba(255,255,255,.58), inset 1px 0 1px rgba(255,255,255,.15), inset 0 -1px 1px rgba(255,255,255,.06);
 }
-.piece--system-widget .search {
-  /* Keep the Google-style surface without a lateral shadow leaking beyond
-     the search piece. */
-  box-shadow: inset 0 1px 1px rgba(255,255,255,.82), inset 0 -1px 2px rgba(55,82,108,.12);
-}
-.piece--system-widget .search:focus-within {
-  box-shadow: inset 0 1px 1px rgba(255,255,255,.82), inset 0 -1px 2px rgba(55,82,108,.12);
-}
-.piece--system-widget .searchWidgetShell.hasSuggestions .search,
-.piece--system-widget .searchWidgetShell.hasSuggestions .search:focus-within {
+.searchWidgetShell.hasSuggestions .search,
+.searchWidgetShell.hasSuggestions .search:focus-within {
   box-shadow: none;
 }
 .piece--add-shortcut .pieceAdd > span {
@@ -320,8 +356,6 @@ button:disabled { opacity: .45; cursor: default; }
 .shortcut { color: var(--hero-text); text-decoration: none; display: grid; place-items: center; gap: 7px; padding: 4px; transition: transform .18s; }
 .shortcut:hover { transform: translateY(-4px); }
 .favicon { width: 54px; height: 54px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.68); border-radius: 16px; background: linear-gradient(145deg, rgba(255,255,255,.96), rgba(225,239,246,.72)); color: #243244; font-weight: 700; box-shadow: inset 1px 1px 1px #fff, inset -1px -1px 1px rgba(110,137,153,.2), 0 10px 22px rgba(0,0,0,.24); }
-.app[data-size="small"] .favicon { width: 46px; height: 46px; }
-.app[data-size="large"] .favicon { width: 62px; height: 62px; }
 .favicon img { width: 34px; height: 34px; object-fit: contain; }
 .shortcutName { max-width: 100%; overflow: hidden; color: var(--hero-muted); white-space: nowrap; text-overflow: ellipsis; font-size: 12px; text-shadow: 0 1px 6px rgba(0,0,0,.5); }
 .shortcutActions { position: absolute; top: 5px; right: 5px; display: flex; gap: 3px; opacity: 0; transition: opacity .18s; }
@@ -469,7 +503,7 @@ input:focus, select:focus { border-color: rgba(214,235,255,.74); box-shadow: ins
 .search .searchSubmit:disabled { opacity: 1; }
 .search::before,
 .search::after { display: none; }
-.search:focus-within { border-color: rgba(223,225,229,.88); box-shadow: 0 1px 6px rgba(32,33,36,.28); }
+.search:focus-within { border-color: var(--search-surface-border); box-shadow: var(--search-surface-shadow); }
 .googleSearchActions { display: flex; flex: 0 0 auto; align-items: center; gap: 18px; padding: 0 7px 0 10px; }
 .googleSearchActions svg { display: block; width: 23px; height: 23px; }
 .googleSearchActions > span { display: grid; place-items: center; }
@@ -510,10 +544,7 @@ select option { color: #172033; }
 .colorChoice, .builtinPreview { min-height: 54px; border-radius: 11px; }
 .colorChoice { padding: 7px; background: rgba(255,255,255,.08); }
 .colorChoice input { height: 28px; padding: 0; }
-.builtinPreview { padding: 6px; text-transform: capitalize; text-shadow: 0 1px 4px #000; }
-.builtinPreview.aurora { background: linear-gradient(135deg,#49cba2,#5550c9); }
-.builtinPreview.dusk { background: linear-gradient(135deg,#6d275f,#e8906e); }
-.builtinPreview.ocean { background: linear-gradient(135deg,#07496a,#61c0bf); }
+.builtinPreview { padding: 6px; background: var(--builtin-wallpaper); text-transform: capitalize; text-shadow: 0 1px 4px #000; }
 .wallhavenPicker { display: grid; gap: 10px; }
 .categoryChoices { display: flex; gap: 14px; }
 .categoryChoices label { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 5px; }
@@ -537,9 +568,12 @@ select option { color: #172033; }
 .conflictBox div { display: flex; flex-wrap: wrap; gap: 6px; }
 .loading { min-height: 100vh; display: grid; place-items: center; color: #5f6368; background: transparent; }
 @media (max-width: 640px) {
-  .content { width: min(100% - 22px, 700px); padding-top: 34px; }
+  .content { width: 100%; padding: 34px 11px 42px; }
   .pieceBoard { display: flex; flex-direction: column; gap: 18px; min-height: 0 !important; }
   .piece { min-height: 0; transform: none !important; }
+  .piece--system-widget .searchWidgetShell { left: 0; justify-self: stretch; width: 100%; max-width: none; transform: none; }
+  .piece--system-widget .search { margin-top: 0; }
+  .piece--system-widget .searchSuggestionsSurface { top: 0; }
   .dashboardBoard { display: flex; flex-direction: column; gap: 18px; min-height: 0 !important; }
   .dashboardBoard::before { display: none; }
   .dashboardWidget { min-height: auto; padding: 0; transform: none !important; }

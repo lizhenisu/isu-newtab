@@ -112,7 +112,6 @@ function mergeWithBase(
   const widgetLayout = mergeVersionedThreeWay(base?.config.appearance.widgetLayout, local.config.appearance.widgetLayout, remote.config.appearance.widgetLayout);
   const theme = mergeVersionedThreeWay(base?.config.appearance.theme, local.config.appearance.theme, remote.config.appearance.theme);
   const blur = mergeVersionedThreeWay(base?.config.appearance.blur, local.config.appearance.blur, remote.config.appearance.blur);
-  const cardSize = mergeVersionedThreeWay(base?.config.appearance.cardSize, local.config.appearance.cardSize, remote.config.appearance.cardSize);
   const solidColor = mergeVersionedThreeWay(base?.config.appearance.solidColor, local.config.appearance.solidColor, remote.config.appearance.solidColor);
   const search = mergeVersionedThreeWay(base?.config.appearance.search, local.config.appearance.search, remote.config.appearance.search);
   const mergedConfig: SyncEnvelope['config'] = {
@@ -121,7 +120,7 @@ function mergeWithBase(
     updatedAt: new Date().toISOString(),
     groups: repaired.groups,
     shortcuts: repaired.shortcuts,
-    appearance: { theme, blur, cardSize, solidColor, widgetLayout, search, ...(wallpaper ? { wallpaper } : {}) },
+    appearance: { theme, blur, solidColor, widgetLayout, search, ...(wallpaper ? { wallpaper } : {}) },
   };
   // A piece is a placement projection of a business entity.  Its bucket is
   // merged independently for fine-grained sync, but a deleted shortcut or

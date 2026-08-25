@@ -77,7 +77,7 @@
   "followBrowserLanguage": { "message": "跟随浏览器语言" },
   "theme": { "message": "主题" },
   "blur": { "message": "模糊强度" },
-  "cardSize": { "message": "卡片尺寸" },
+  "widgetSize": { "message": "组件尺寸" },
   "wallpaper": { "message": "壁纸" },
   "solid": { "message": "纯色" },
   "builtin": { "message": "内置" },

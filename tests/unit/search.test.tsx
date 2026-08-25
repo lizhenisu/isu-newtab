@@ -123,7 +123,7 @@ describe('search experience', () => {
     expect(navigateCurrentTab).toHaveBeenLastCalledWith(expect.stringContaining('https://www.bing.com/images?setlang=en-US'));
   });
 
-  it('renders search history outside the widget clipping context', async () => {
+  it('renders search history in the local Realbox surface', async () => {
     await recordSearch('history outside piece');
     render(<SearchWidget preferences={{ ...DEFAULT_SEARCH_PREFERENCES, backgroundOpacity: 42, suggestionsEnabled: false }} historySource="local" />);
     vi.spyOn(screen.getByRole('search'), 'getBoundingClientRect').mockReturnValue({
@@ -132,10 +132,10 @@ describe('search experience', () => {
     const input = screen.getByLabelText('searchPlaceholder');
     fireEvent.focus(input);
     const list = await screen.findByRole('listbox');
-    expect(list.parentElement).toHaveClass('searchSuggestionsLayer');
-    expect(list.parentElement?.parentElement).toBe(document.body);
-    expect(list).toHaveStyle({ left: '40px', top: '159px', width: '320px' });
-    expect(list.style.getPropertyValue('--search-background-alpha')).toBe('0.42');
+    const surface = list.parentElement!;
+    expect(surface).toHaveClass('searchSuggestionsSurface');
+    expect(surface.parentElement).toHaveClass('searchWidgetShell');
+    expect(surface.style.getPropertyValue('--search-suggestions-max-height')).toBe('660px');
     expect(screen.getByRole('search').parentElement?.style.getPropertyValue('--search-background-alpha')).toBe('0.42');
     expect(screen.getByRole('option', { name: 'history outside piece' })).toBeVisible();
   });

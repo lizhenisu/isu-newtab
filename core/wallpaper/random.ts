@@ -2,6 +2,9 @@ import { fetchWallhavenRandom } from './wallhaven';
 import type { WallpaperRefreshInterval } from '../domain/types';
 
 export const RANDOM_WALLPAPER_ASSET_KEY = 'wallpaper/random-current';
+export const RANDOM_WALLPAPER_DISPLAY_PORT = 'isu:wallpaper:random-display';
+
+export type RandomWallpaperDisplayMessage = { type: 'ready' };
 
 export type RandomWallpaperState = {
   imageUrl: string;
@@ -20,6 +23,21 @@ const INTERVAL_MS: Record<WallpaperRefreshInterval, number> = {
 
 export function wallpaperRefreshIntervalMs(interval: WallpaperRefreshInterval): number {
   return INTERVAL_MS[interval];
+}
+
+export function shouldDeferRandomWallpaperRefresh(
+  state: RandomWallpaperState | undefined,
+  hasCachedImage: boolean,
+  hasReadyDisplay: boolean,
+  now = Date.now(),
+): boolean {
+  if (!state || !hasCachedImage || hasReadyDisplay) return false;
+  const nextRefreshAt = Date.parse(state.nextRefreshAt);
+  return !Number.isFinite(nextRefreshAt) || nextRefreshAt <= now;
+}
+
+export function isRandomWallpaperDisplayReadyMessage(value: unknown): value is RandomWallpaperDisplayMessage {
+  return Boolean(value) && typeof value === 'object' && (value as { type?: unknown }).type === 'ready';
 }
 
 export async function chooseRandomWallhaven(previousId?: string): Promise<Pick<RandomWallpaperState, 'imageUrl' | 'sourceUrl' | 'wallpaperId'>> {

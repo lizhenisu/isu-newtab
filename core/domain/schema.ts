@@ -128,7 +128,6 @@ export const shortcutSchema = z.object({
 const appearanceSchema = z.object({
   theme: versioned(z.enum(['light', 'dark', 'system'])),
   blur: versioned(z.number().min(0).max(40)),
-  cardSize: versioned(z.enum(['small', 'medium', 'large'])),
   solidColor: versioned(solidColorSchema).optional(),
   wallpaper: versioned(wallpaperSchema),
   widgetLayout: versioned(widgetLayoutSchema).default(legacyWidgetLayout),
@@ -176,7 +175,6 @@ const wallpaperSyncProjectionSchema = z.discriminatedUnion('type', [
 const syncAppearanceSchema = z.object({
   theme: versioned(z.enum(['light', 'dark', 'system'])),
   blur: versioned(z.number().min(0).max(40)),
-  cardSize: versioned(z.enum(['small', 'medium', 'large'])),
   solidColor: versioned(solidColorSchema).optional(),
   wallpaper: versioned(wallpaperSyncProjectionSchema).optional(),
   widgetLayout: versioned(widgetLayoutSchema).default(legacyWidgetLayout),

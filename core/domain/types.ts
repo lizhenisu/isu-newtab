@@ -65,7 +65,6 @@ export type AppLanguage = 'system' | 'zh_CN' | 'en';
 export type Appearance = {
   theme: VersionedValue<'light' | 'dark' | 'system'>;
   blur: VersionedValue<number>;
-  cardSize: VersionedValue<'small' | 'medium' | 'large'>;
   solidColor: VersionedValue<string>;
   wallpaper: VersionedValue<Wallpaper>;
   widgetLayout: VersionedValue<WidgetLayout>;

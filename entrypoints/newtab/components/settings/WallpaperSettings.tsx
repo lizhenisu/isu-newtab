@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties } from 'react';
 import { browser } from 'wxt/browser';
 import { t } from '../../../../core/browser/i18n';
 import { useAppStore } from '../../../../core/state/store';
 import { appRepositories } from '../../../../core/storage/repository';
 import { processWallpaperImage } from '../../../../core/wallpaper/image';
+import { BUILTIN_WALLPAPER_IDS, BUILTIN_WALLPAPERS } from '../../../../core/wallpaper/builtin';
 import { searchWallhaven, type WallhavenPage } from '../../../../core/wallpaper/wallhaven';
 import { errorMessage } from './error-message';
 import { UnsplashPicker } from './UnsplashPicker';
@@ -68,7 +69,7 @@ export function WallpaperSettings() {
             onChange={(event) => void setSolidWallpaper(event.target.value)}
           />
         </div>
-        {['aurora', 'dusk', 'ocean'].map((assetId) => <button key={assetId} type="button" aria-pressed={wallpaper.type === 'builtin' && wallpaper.assetId === assetId} className={`builtinPreview ${assetId} ${wallpaper.type === 'builtin' && wallpaper.assetId === assetId ? 'active' : ''}`} onClick={() => void selectWallpaper({ type: 'builtin', assetId })}>{t(assetId)}</button>)}
+        {BUILTIN_WALLPAPER_IDS.map((assetId) => <button key={assetId} type="button" aria-pressed={wallpaper.type === 'builtin' && wallpaper.assetId === assetId} className={`builtinPreview ${assetId} ${wallpaper.type === 'builtin' && wallpaper.assetId === assetId ? 'active' : ''}`} style={{ '--builtin-wallpaper': BUILTIN_WALLPAPERS[assetId] } as CSSProperties} onClick={() => void selectWallpaper({ type: 'builtin', assetId })}>{t(assetId)}</button>)}
         <button type="button" className={`secondary wallpaperUploadChoice ${wallpaper.type === 'upload' ? 'active' : ''}`} aria-pressed={wallpaper.type === 'upload'} onClick={() => { void browser.runtime.sendMessage({ type: 'wallpaper:random:reconcile' }); fileInput.current?.click(); }}>{t('upload')}</button>
         <button type="button" className={`secondary wallpaperRandomChoice ${wallpaper.type === 'wallhaven-random' ? 'active' : ''}`} aria-pressed={wallpaper.type === 'wallhaven-random'} onClick={() => void selectWallpaper({ type: 'wallhaven-random', interval: '1d' }, 'activate')}>{t('onlineRandom')}</button>
         <input ref={fileInput} type="file" accept="image/*" hidden onChange={upload} />

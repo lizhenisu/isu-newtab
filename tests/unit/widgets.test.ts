@@ -70,6 +70,14 @@ describe('dashboard component layout', () => {
     expect(appConfigSchema.parse(oldConfig).appearance.widgetLayout.value).toEqual(createDefaultWidgetLayout());
   });
 
+  it('drops the removed global card-size preference from older configurations', () => {
+    const config = createInitialConfig({ deviceId: 'local', counter: 0, epoch: 0 });
+    const oldConfig = structuredClone(config) as Record<string, unknown> & { appearance: Record<string, unknown> };
+    oldConfig.appearance.cardSize = { value: 'large', revision: { counter: 1, deviceId: 'legacy' } };
+
+    expect(appConfigSchema.parse(oldConfig).appearance).not.toHaveProperty('cardSize');
+  });
+
   it('derives the remembered solid color from older solid wallpaper data', () => {
     const config = createInitialConfig({ deviceId: 'local', counter: 0, epoch: 0 });
     config.appearance.wallpaper.value = { type: 'solid', color: '#4a7098' };
