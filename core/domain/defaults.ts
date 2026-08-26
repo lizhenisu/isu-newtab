@@ -32,9 +32,9 @@ export function createInitialConfig(identity: DeviceIdentity): AppConfig {
     shortcuts: [],
     appearance: {
       theme: { value: 'system', revision },
-      blur: { value: 18, revision },
+      blur: { value: 0, revision },
       solidColor: { value: DEFAULT_SOLID_WALLPAPER_COLOR, revision },
-      wallpaper: { value: { type: 'solid', color: DEFAULT_SOLID_WALLPAPER_COLOR }, revision },
+      wallpaper: { value: { type: 'builtin', assetId: 'aurora' }, revision },
       widgetLayout: { value: createDefaultWidgetLayout(), revision },
       search: { value: { ...DEFAULT_SEARCH_PREFERENCES }, revision },
     },

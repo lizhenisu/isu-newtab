@@ -12,6 +12,7 @@ export const WIDGET_IDS = [
 
 export type WidgetId = typeof WIDGET_IDS[number];
 export type SystemWidgetId = Exclude<WidgetId, 'shortcuts' | 'addShortcut'>;
+export type ConfigurableWidgetId = Exclude<WidgetId, 'shortcuts'>;
 export const SYSTEM_WIDGET_IDS = WIDGET_IDS.filter((id): id is SystemWidgetId => id !== 'shortcuts' && id !== 'addShortcut');
 export type WidgetSizePreset = 'small' | 'medium' | 'large';
 
@@ -48,7 +49,7 @@ const DEFAULT_POSITIONS: Record<WidgetId, WidgetPosition> = {
   clock: { column: 19, row: 0, width: 10, height: 4, gridVersion: 3 },
   greeting: { column: 20, row: 4, width: 8, height: 2, gridVersion: 3 },
   focusTimer: { column: 17, row: 6, width: 14, height: 6, gridVersion: 3 },
-  search: { column: 14, row: 12, width: 20, height: 2, gridVersion: 3 },
+  search: { column: 14, row: 0, width: 20, height: 2, gridVersion: 3 },
   quickNote: { column: 10, row: 14, width: 28, height: 7, gridVersion: 3 },
   weather: { column: 19, row: 26, width: 10, height: 3, gridVersion: 3 },
   shortcuts: { column: 16, row: 20, width: 16, height: 4, gridVersion: 3 },
@@ -68,8 +69,8 @@ export const WIDGET_SIZE_PRESETS: Record<SystemWidgetId, Record<WidgetSizePreset
 
 export function createDefaultWidgetLayout(): WidgetLayout {
   return [
-    ...SYSTEM_WIDGET_IDS.map((id) => ({ id, enabled: id !== 'weather', sizePreset: 'medium' as const, position: { ...DEFAULT_POSITIONS[id] } })),
-    { id: 'addShortcut' as const, enabled: true, position: { ...DEFAULT_POSITIONS.addShortcut } },
+    ...SYSTEM_WIDGET_IDS.map((id) => ({ id, enabled: id === 'search', sizePreset: 'medium' as const, position: { ...DEFAULT_POSITIONS[id] } })),
+    { id: 'addShortcut' as const, enabled: false, position: { ...DEFAULT_POSITIONS.addShortcut } },
   ];
 }
 
@@ -87,9 +88,19 @@ export function resolveWidgetLayout(layout: WidgetLayout): ResolvedWidgetLayoutI
     return { ...item, id, sizePreset, position: normalizePosition(item.position, { ...DEFAULT_POSITIONS[id], ...footprint }) };
   });
   for (const id of SYSTEM_WIDGET_IDS) {
-    if (!known.has(id)) resolved.push({ id, enabled: id !== 'weather', sizePreset: 'medium', position: { ...DEFAULT_POSITIONS[id] } });
+    if (!known.has(id)) resolved.push({ id, enabled: id === 'search', sizePreset: 'medium', position: { ...DEFAULT_POSITIONS[id] } });
   }
   return resolved;
+}
+
+/** Resolves the separately-rendered add-shortcut component without reviving the removed shortcuts container. */
+export function resolveAddShortcutLayout(layout: WidgetLayout): WidgetLayoutItem & { id: 'addShortcut'; position: WidgetPosition } {
+  const stored = layout.find((item) => item.id === 'addShortcut');
+  return {
+    id: 'addShortcut',
+    enabled: stored?.enabled ?? false,
+    position: normalizePosition(stored?.position, DEFAULT_POSITIONS.addShortcut),
+  };
 }
 
 function normalizePosition(position: WidgetPosition | undefined, fallback: WidgetPosition): WidgetPosition {

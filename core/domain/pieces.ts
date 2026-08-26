@@ -1,5 +1,5 @@
 import type { Revision, Shortcut, ShortcutGroup } from './types';
-import type { SystemWidgetId, WidgetSizePreset } from './widgets';
+import { createDefaultWidgetLayout, type SystemWidgetId, type WidgetSizePreset } from './widgets';
 
 /** The only entities that participate in desktop placement. */
 export type PieceKind = 'system-widget' | 'shortcut' | 'folder' | 'add-shortcut';
@@ -76,7 +76,7 @@ export function piecePositionForWidget(widgetId: SystemWidgetId, sizePreset: Wid
     clock: { x: -size.width / 2, y: 0 },
     greeting: { x: -size.width / 2, y: 4 },
     focusTimer: { x: -size.width / 2, y: 6 },
-    search: { x: -size.width / 2, y: 12 },
+    search: { x: -size.width / 2, y: 0 },
     quickNote: { x: -size.width / 2, y: 14 },
     weather: { x: -size.width / 2, y: 26 },
     dailyQuote: { x: -size.width / 2, y: 24 },
@@ -113,12 +113,13 @@ export function pieceFingerprint(pieces: Piece[]): string {
 }
 
 export function createDefaultPieces(identity: Revision, searchPercent = 50): Piece[] {
+  const layout = createDefaultWidgetLayout();
   const system: SystemWidgetId[] = ['clock', 'greeting', 'focusTimer', 'search', 'quickNote', 'dailyQuote', 'weather'];
   const pieces: Piece[] = system.map((widgetId) => {
     const sizePreset: WidgetSizePreset = 'medium';
-    return { id: `piece:widget:${widgetId}`, kind: 'system-widget', payloadRef: widgetId, container: widgetId === 'weather' ? { kind: 'hidden' } : { kind: 'desktop' }, position: piecePositionForWidget(widgetId, sizePreset, searchPercent), sizePreset, revision: identity };
+    return { id: `piece:widget:${widgetId}`, kind: 'system-widget', payloadRef: widgetId, container: layout.find((item) => item.id === widgetId)?.enabled ? { kind: 'desktop' } : { kind: 'hidden' }, position: piecePositionForWidget(widgetId, sizePreset, searchPercent), sizePreset, revision: identity };
   });
-  pieces.push({ id: 'piece:add-shortcut', kind: 'add-shortcut', payloadRef: 'add-shortcut', container: { kind: 'desktop' }, position: { x: 10, y: 24, width: 4, height: 3 }, revision: identity });
+  pieces.push({ id: 'piece:add-shortcut', kind: 'add-shortcut', payloadRef: 'add-shortcut', container: { kind: 'hidden' }, position: { x: 10, y: 24, width: 4, height: 3 }, revision: identity });
   return pieces;
 }
 

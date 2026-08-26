@@ -29,7 +29,8 @@ const pieceSchema = z.object({
 }).superRefine((piece, context) => {
   if (piece.container.kind === 'desktop' && !piece.position) context.addIssue({ code: 'custom', message: 'DESKTOP_PIECE_POSITION_REQUIRED', path: ['position'] });
   if (piece.container.kind === 'folder' && piece.position) context.addIssue({ code: 'custom', message: 'FOLDER_CHILD_POSITION_FORBIDDEN', path: ['position'] });
-  if (piece.kind === 'add-shortcut' && (piece.id !== 'piece:add-shortcut' || piece.container.kind !== 'desktop')) context.addIssue({ code: 'custom', message: 'ADD_SHORTCUT_PIECE_INVALID' });
+  if (piece.kind === 'add-shortcut' && piece.id !== 'piece:add-shortcut') context.addIssue({ code: 'custom', message: 'ADD_SHORTCUT_PIECE_INVALID' });
+  if (piece.kind === 'add-shortcut' && piece.container.kind === 'folder') context.addIssue({ code: 'custom', message: 'ADD_SHORTCUT_PIECE_INVALID' });
 });
 
 const versioned = <T extends z.ZodType>(value: T) => z.object({ value, revision: revisionSchema });
@@ -78,6 +79,7 @@ const legacySearchPreferences = () => ({
 });
 
 const solidColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i);
+const bingWallpaperQualitySchema = z.enum(['1080p', '1440p', '4k']).default('1080p');
 
 const legacySolidColor = () => ({
   value: DEFAULT_SOLID_WALLPAPER_COLOR,
@@ -95,6 +97,14 @@ export const wallpaperSchema = z.discriminatedUnion('type', [
     wallpaperId: z.string().optional(),
   }),
   z.object({ type: z.literal('wallhaven-random'), interval: z.enum(['1h', '5h', '1d']).default('1d') }),
+  z.object({
+    type: z.literal('bing'),
+    imageUrl: z.string().url().refine((url) => url.startsWith('https://www.bing.com/th?')),
+    sourceUrl: z.string().url().refine((url) => url.startsWith('https://www.bing.com/')),
+    date: z.string().regex(/^\d{8}$/),
+    quality: bingWallpaperQualitySchema,
+  }),
+  z.object({ type: z.literal('bing-daily'), quality: bingWallpaperQualitySchema }),
   z.object({
     type: z.literal('unsplash'),
     imageUrl: z.string().url().refine((url) => url.startsWith('https://images.unsplash.com/')),
@@ -119,7 +129,6 @@ export const shortcutSchema = z.object({
   groupId: z.string().min(1),
   name: z.string().trim().min(1).max(120),
   url: z.string().url().refine((url) => /^https?:/.test(url)),
-  icon: z.string().max(2048).optional(),
   sortKey: z.string().min(1),
   position: desktopPositionSchema.optional(),
   revision: revisionSchema,
@@ -162,6 +171,14 @@ const wallpaperSyncProjectionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('builtin'), assetId: z.string().min(1) }),
   z.object({ type: z.literal('wallhaven'), imageUrl: z.string().url().refine((url) => url.startsWith('https://w.wallhaven.cc/')) }),
   z.object({ type: z.literal('wallhaven-random'), interval: z.enum(['1h', '5h', '1d']).default('1d') }),
+  z.object({
+    type: z.literal('bing'),
+    imageUrl: z.string().url().refine((url) => url.startsWith('https://www.bing.com/th?')),
+    sourceUrl: z.string().url().refine((url) => url.startsWith('https://www.bing.com/')),
+    date: z.string().regex(/^\d{8}$/),
+    quality: bingWallpaperQualitySchema,
+  }),
+  z.object({ type: z.literal('bing-daily'), quality: bingWallpaperQualitySchema }),
   z.object({
     type: z.literal('unsplash'),
     imageUrl: z.string().url().refine((url) => url.startsWith('https://images.unsplash.com/')),

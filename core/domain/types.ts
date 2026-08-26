@@ -27,11 +27,14 @@ export type Shortcut = {
   groupId: string;
   name: string;
   url: string;
-  icon?: string;
   sortKey: string;
   position?: import('./widgets').WidgetPosition;
   revision: Revision;
 };
+
+export type ShortcutInput = Pick<Shortcut, 'name' | 'url' | 'groupId'>;
+
+export type BingWallpaperQuality = '1080p' | '1440p' | '4k';
 
 export type Wallpaper =
   | { type: 'solid'; color: string }
@@ -39,6 +42,8 @@ export type Wallpaper =
   | { type: 'upload'; assetKey: string }
   | { type: 'wallhaven'; imageUrl: string; sourceUrl?: string; wallpaperId?: string }
   | { type: 'wallhaven-random'; interval: WallpaperRefreshInterval }
+  | { type: 'bing'; imageUrl: string; sourceUrl: string; date: string; quality: BingWallpaperQuality }
+  | { type: 'bing-daily'; quality: BingWallpaperQuality }
   | { type: 'unsplash'; imageUrl: string; sourceUrl: string; photoId: string; photographerName: string; photographerUrl: string };
 
 export type WallpaperRefreshInterval = '1h' | '5h' | '1d';
@@ -48,6 +53,8 @@ export type WallpaperSyncProjection =
   | { type: 'builtin'; assetId: string }
   | { type: 'wallhaven'; imageUrl: string }
   | { type: 'wallhaven-random'; interval: WallpaperRefreshInterval }
+  | { type: 'bing'; imageUrl: string; sourceUrl: string; date: string; quality: BingWallpaperQuality }
+  | { type: 'bing-daily'; quality: BingWallpaperQuality }
   | { type: 'unsplash'; imageUrl: string; sourceUrl: string; photoId: string; photographerName: string; photographerUrl: string };
 
 export type SearchPreferences = {
@@ -144,6 +151,7 @@ export type SyncCheckpoint = {
   outbox: OutboxEntry[];
   pieces?: Piece[];
   cursor?: ProviderCursor;
+  replicas?: import('../sync/replica').SyncReplica[];
 };
 
 export type AssetRecord = {

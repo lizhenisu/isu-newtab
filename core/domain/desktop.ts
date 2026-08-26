@@ -3,6 +3,7 @@ import { DEFAULT_GROUP_ID, type AppConfig, type Revision, type Shortcut, type Sh
 import {
   DASHBOARD_COLUMNS,
   DASHBOARD_ROW_HEIGHT,
+  resolveAddShortcutLayout,
   resolveWidgetLayout,
   type SystemWidgetId,
   type WidgetPosition,
@@ -96,14 +97,14 @@ export function buildDesktopSnapshot(config: AppConfig): DesktopSnapshot {
     });
   }
 
-  const storedAdd = config.appearance.widgetLayout.value.find((item) => item.id === 'addShortcut');
+  const storedAdd = resolveAddShortcutLayout(config.appearance.widgetLayout.value);
   nodes.push({
     kind: 'add-shortcut',
     key: 'add-shortcut',
     movable: true,
     revision: widgetRevision,
-    container: { kind: 'desktop' },
-    position: normalizeIconRect(storedAdd?.position),
+    container: storedAdd.enabled ? { kind: 'desktop' } : { kind: 'hidden' },
+    position: normalizeIconRect(storedAdd.position),
   });
 
   return {
@@ -214,11 +215,11 @@ export function migrateDesktopPositions(config: AppConfig): {
 } {
   const next = structuredClone(config);
   const legacy = next.appearance.widgetLayout.value.find((item) => item.id === 'shortcuts');
-  const storedAdd = next.appearance.widgetLayout.value.find((item) => item.id === 'addShortcut');
+  const storedAdd = resolveAddShortcutLayout(next.appearance.widgetLayout.value);
   const storedSystem = next.appearance.widgetLayout.value.filter((item) => item.id !== 'shortcuts' && item.id !== 'addShortcut');
   const resolved = resolveWidgetLayout(next.appearance.widgetLayout.value);
   const occupied = resolved.filter((item) => item.enabled).map((item) => logicalWidgetPosition(next, item.id as SystemWidgetId, item.position));
-  let widgetLayoutChanged = Boolean(legacy) || !storedAdd
+  let widgetLayoutChanged = Boolean(legacy) || !next.appearance.widgetLayout.value.some((item) => item.id === 'addShortcut')
     || JSON.stringify(storedSystem) !== JSON.stringify(resolved);
   next.appearance.widgetLayout.value = resolved;
   const changedShortcuts: string[] = [];
@@ -243,10 +244,10 @@ export function migrateDesktopPositions(config: AppConfig): {
     group.position = position;
     occupied.push(position);
   }
-  const desiredAdd = normalizeIconRect(storedAdd?.position ?? seed);
-  const addPosition = occupied.some((item) => overlaps(item, desiredAdd)) ? firstFreePosition(occupied, DESKTOP_ICON_SIZE, desiredAdd) : desiredAdd;
-  if (!samePosition(storedAdd?.position, addPosition)) widgetLayoutChanged = true;
-  next.appearance.widgetLayout.value.push({ id: 'addShortcut', enabled: true, position: addPosition });
+  const desiredAdd = normalizeIconRect(storedAdd.position ?? seed);
+  const addPosition = storedAdd.enabled && occupied.some((item) => overlaps(item, desiredAdd)) ? firstFreePosition(occupied, DESKTOP_ICON_SIZE, desiredAdd) : desiredAdd;
+  if (!samePosition(storedAdd.position, addPosition)) widgetLayoutChanged = true;
+  next.appearance.widgetLayout.value.push({ id: 'addShortcut', enabled: storedAdd.enabled, position: addPosition });
   return { config: next, changedShortcuts: [...new Set(changedShortcuts)], changedGroups, widgetLayoutChanged };
 }
 
