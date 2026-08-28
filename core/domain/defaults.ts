@@ -15,6 +15,7 @@ export const DEFAULT_SEARCH_PREFERENCES: SearchPreferences = {
 };
 
 export const DEFAULT_SOLID_WALLPAPER_COLOR = '#ffffff';
+export const DEFAULT_WALLPAPER_STARTUP_FADE_MS = 600;
 
 export function createInitialConfig(identity: DeviceIdentity): AppConfig {
   const revision: Revision = { counter: ++identity.counter, deviceId: identity.deviceId };
@@ -33,6 +34,7 @@ export function createInitialConfig(identity: DeviceIdentity): AppConfig {
     appearance: {
       theme: { value: 'system', revision },
       blur: { value: 0, revision },
+      wallpaperStartupFadeMs: { value: DEFAULT_WALLPAPER_STARTUP_FADE_MS, revision },
       solidColor: { value: DEFAULT_SOLID_WALLPAPER_COLOR, revision },
       wallpaper: { value: { type: 'builtin', assetId: 'aurora' }, revision },
       widgetLayout: { value: createDefaultWidgetLayout(), revision },
