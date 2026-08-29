@@ -3,7 +3,7 @@ import { appConfigSchema } from './schema';
 import { normalizeShortcutUrl } from './url';
 import { DEFAULT_GROUP_ID, type AppConfig, type Revision } from './types';
 import { createDefaultWidgetLayout } from './widgets';
-import { DEFAULT_SEARCH_PREFERENCES, DEFAULT_SOLID_WALLPAPER_COLOR } from './defaults';
+import { DEFAULT_SEARCH_PREFERENCES, DEFAULT_SOLID_WALLPAPER_COLOR, DEFAULT_WALLPAPER_STARTUP_FADE_MS } from './defaults';
 
 type LegacyConfig = {
   schemaVersion?: 0;
@@ -41,12 +41,13 @@ export function migrateAppConfig(input: unknown): AppConfig {
     appearance: {
       theme: { value: ['light', 'dark', 'system'].includes(legacy.appearance?.theme ?? '') ? legacy.appearance!.theme : 'system', revision: revision(shortcuts.length + 2) },
       blur: { value: Math.max(0, Math.min(40, legacy.appearance?.blur ?? 0)), revision: revision(shortcuts.length + 3) },
+      wallpaperStartupFadeMs: { value: DEFAULT_WALLPAPER_STARTUP_FADE_MS, revision: revision(shortcuts.length + 4) },
       solidColor: { value: /^#[0-9a-f]{6}$/i.test(legacy.appearance?.solidColor ?? '')
         ? legacy.appearance!.solidColor!
-        : /^#[0-9a-f]{6}$/i.test(legacy.wallpaper?.color ?? '') ? legacy.wallpaper!.color! : DEFAULT_SOLID_WALLPAPER_COLOR, revision: revision(shortcuts.length + 4) },
-      wallpaper: { value: wallpaper, revision: revision(shortcuts.length + 4) },
-      widgetLayout: { value: createDefaultWidgetLayout(), revision: revision(shortcuts.length + 5) },
-      search: { value: { ...DEFAULT_SEARCH_PREFERENCES }, revision: revision(shortcuts.length + 6) },
+        : /^#[0-9a-f]{6}$/i.test(legacy.wallpaper?.color ?? '') ? legacy.wallpaper!.color! : DEFAULT_SOLID_WALLPAPER_COLOR, revision: revision(shortcuts.length + 5) },
+      wallpaper: { value: wallpaper, revision: revision(shortcuts.length + 5) },
+      widgetLayout: { value: createDefaultWidgetLayout(), revision: revision(shortcuts.length + 6) },
+      search: { value: { ...DEFAULT_SEARCH_PREFERENCES }, revision: revision(shortcuts.length + 7) },
     },
   }));
 }
