@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { createDefaultWidgetLayout, WIDGET_IDS } from './widgets';
-import { DEFAULT_SEARCH_PREFERENCES, DEFAULT_SOLID_WALLPAPER_COLOR } from './defaults';
+import { DEFAULT_SEARCH_PREFERENCES, DEFAULT_SOLID_WALLPAPER_COLOR, DEFAULT_WALLPAPER_STARTUP_FADE_MS } from './defaults';
 import { isPiecePositionValid } from './pieces';
 
 export const revisionSchema = z.object({
@@ -78,6 +78,11 @@ const legacySearchPreferences = () => ({
   revision: { counter: 0, deviceId: 'legacy-search-preferences' },
 });
 
+const legacyWallpaperStartupFade = () => ({
+  value: DEFAULT_WALLPAPER_STARTUP_FADE_MS,
+  revision: { counter: 0, deviceId: 'legacy-wallpaper-startup-fade' },
+});
+
 const solidColorSchema = z.string().regex(/^#[0-9a-f]{6}$/i);
 const bingWallpaperQualitySchema = z.enum(['1080p', '1440p', '4k']).default('1080p');
 
@@ -137,6 +142,7 @@ export const shortcutSchema = z.object({
 const appearanceSchema = z.object({
   theme: versioned(z.enum(['light', 'dark', 'system'])),
   blur: versioned(z.number().min(0).max(40)),
+  wallpaperStartupFadeMs: versioned(z.number().int().min(0).max(2000)).default(legacyWallpaperStartupFade),
   solidColor: versioned(solidColorSchema).optional(),
   wallpaper: versioned(wallpaperSchema),
   widgetLayout: versioned(widgetLayoutSchema).default(legacyWidgetLayout),
@@ -192,6 +198,7 @@ const wallpaperSyncProjectionSchema = z.discriminatedUnion('type', [
 const syncAppearanceSchema = z.object({
   theme: versioned(z.enum(['light', 'dark', 'system'])),
   blur: versioned(z.number().min(0).max(40)),
+  wallpaperStartupFadeMs: versioned(z.number().int().min(0).max(2000)).default(legacyWallpaperStartupFade),
   solidColor: versioned(solidColorSchema).optional(),
   wallpaper: versioned(wallpaperSyncProjectionSchema).optional(),
   widgetLayout: versioned(widgetLayoutSchema).default(legacyWidgetLayout),
