@@ -272,11 +272,22 @@ function normalizeIconRect(position?: WidgetPosition): WidgetPosition {
   };
 }
 
-function desktopFingerprint(nodes: DesktopNode[]): string {
+/**
+ * Identifies the desktop structure without mutable revision metadata. This is
+ * used to validate an optimistic visual handoff across a repository write.
+ */
+export function desktopLayoutFingerprint(nodes: readonly DesktopNode[]): string {
   return [...nodes].sort((left, right) => left.key.localeCompare(right.key)).map((node) => {
     const container = node.container.kind === 'folder' ? `folder:${node.container.folderId}` : node.container.kind;
     const position = node.position ? `${node.position.column},${node.position.row},${node.position.width},${node.position.height}` : '-';
-    return `${node.key}|${container}|${position}|${node.revision.counter}@${node.revision.deviceId}`;
+    return `${node.key}|${container}|${position}`;
+  }).join(';');
+}
+
+function desktopFingerprint(nodes: DesktopNode[]): string {
+  return [...nodes].sort((left, right) => left.key.localeCompare(right.key)).map((node) => {
+    const revision = `${node.revision.counter}@${node.revision.deviceId}`;
+    return `${desktopLayoutFingerprint([node])}|${revision}`;
   }).join(';');
 }
 
