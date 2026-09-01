@@ -67,11 +67,12 @@ export type SearchPreferences = {
 
 export type SearchEngine = 'google' | 'bing';
 export type SearchHistorySource = 'local' | 'chrome';
-export type AppLanguage = 'system' | 'zh_CN' | 'en';
+export type AppLanguage = 'system' | 'zh_CN' | 'zh_HK' | 'zh_TW' | 'ko' | 'ja' | 'en';
 
 export type Appearance = {
   theme: VersionedValue<'light' | 'dark' | 'system'>;
   blur: VersionedValue<number>;
+  wallpaperStartupFadeMs: VersionedValue<number>;
   solidColor: VersionedValue<string>;
   wallpaper: VersionedValue<Wallpaper>;
   widgetLayout: VersionedValue<WidgetLayout>;
@@ -124,7 +125,7 @@ export type SyncEnvelope = {
   metadata: SyncMetadata;
 };
 
-export type SyncMode = 'local' | 'chrome';
+export type SyncMode = 'local' | 'chrome' | 'google-drive';
 
 export type ProviderCursor = {
   providerId: string;
