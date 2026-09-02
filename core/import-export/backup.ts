@@ -140,6 +140,7 @@ function remapImportedConfig(
     appearance: {
       theme: { value: imported.appearance.theme.value, revision: nextRevision(identity) },
       blur: { value: imported.appearance.blur.value, revision: nextRevision(identity) },
+      wallpaperStartupFadeMs: { value: imported.appearance.wallpaperStartupFadeMs.value, revision: nextRevision(identity) },
       solidColor: { value: imported.appearance.solidColor.value, revision: nextRevision(identity) },
       wallpaper: { value: wallpaper, revision: nextRevision(identity) },
       widgetLayout: { value: structuredClone(imported.appearance.widgetLayout.value), revision: nextRevision(identity) },
