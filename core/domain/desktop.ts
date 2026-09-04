@@ -284,7 +284,7 @@ export function desktopLayoutFingerprint(nodes: readonly DesktopNode[]): string 
   }).join(';');
 }
 
-function desktopFingerprint(nodes: DesktopNode[]): string {
+export function desktopFingerprint(nodes: DesktopNode[]): string {
   return [...nodes].sort((left, right) => left.key.localeCompare(right.key)).map((node) => {
     const revision = `${node.revision.counter}@${node.revision.deviceId}`;
     return `${desktopLayoutFingerprint([node])}|${revision}`;
