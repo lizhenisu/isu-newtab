@@ -1,6 +1,6 @@
 # Isu NewTab
 
-isu 是一款简洁、可自由布局的 Chrome 新标签页扩展。你可以像整理手机桌面一样安排自己的浏览器首页的时钟、搜索、便签、专注计时器和网站快捷方式。
+isu 是一款简洁、可自由布局的 Chrome 与 Microsoft Edge 新标签页扩展。你可以像整理手机桌面一样安排自己的浏览器首页的时钟、搜索、便签、专注计时器和网站快捷方式。
 
 ![Isu 新标签页界面](doc/images/newtab.png)
 
@@ -25,18 +25,17 @@ isu 是一款简洁、可自由布局的 Chrome 新标签页扩展。你可以�
 
 ### 同步与备份
 
-- 可以选择“仅本地”或使用 Chrome Sync 同步轻量配置。
-- Chrome Sync 可同步快捷方式、文件夹、桌面位置、组件设置和壁纸设置。
+- 可以选择“仅本地”或使用当前浏览器的原生同步服务同步轻量配置。
+- Chrome Sync / Edge Sync 可同步快捷方式、文件夹、桌面位置、组件设置和壁纸设置；Chrome 版本还可选择 Google Drive。
 - 支持将配置导出为 ZIP，也可以从 ZIP 恢复。
 - 导出备份时可以选择是否包含本地上传的壁纸。
 
 ### 搜索历史
 
 - 默认将最近的搜索记录保存在当前设备，不参与 Isu 的任何同步。
-- 可以在“设置 → 搜索框 → 历史来源”中切换为 Chrome 历史。
-- 切换到 Chrome 历史时，Chrome 会单独请求读取浏览历史的权限；切回本地或关闭搜索历史后会立即撤销该权限。
-- Chrome 历史模式从 Google、Bing、DuckDuckGo、百度和 Yahoo 的搜索结果页中识别搜索词，并可能显示 Chrome 从其他设备同步来的记录。
-- 是否能获得跨设备记录取决于用户是否登录 Chrome 并启用“历史记录和标签页”同步。
+- 可以在“设置 → 搜索框 → 历史来源”中切换为浏览器历史。
+- 切换时 Chrome 或 Edge 会单独请求读取浏览历史的权限；切回本地或关闭搜索历史后会立即撤销该权限。
+- 浏览器历史模式从 Google、Bing、DuckDuckGo、百度和 Yahoo 的搜索结果页中识别搜索词，并可能显示其他已同步设备的记录。
 
 ### 天气
 
@@ -44,7 +43,9 @@ isu 是一款简洁、可自由布局的 Chrome 新标签页扩展。你可以�
 
 ## 安装
 
-Google Chrome 扩展市场下载安装：[Isu New Tab](https://chromewebstore.google.com/detail/bicbanpjmmdcmidghgphnclkmbjadebc?utm_source=item-share-cb)
+Google Chrome 扩展市场下载安装：[Isu NewTab](https://chromewebstore.google.com/detail/bicbanpjmmdcmidghgphnclkmbjadebc?utm_source=item-share-cb)
+
+Edge 扩展市场下载安装：[Isu NewTab](https://microsoftedge.microsoft.com/addons/detail/nemifogccbjggaaajhalckabimlckmpf)
 
 ## 快速上手
 
