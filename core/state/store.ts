@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import { browser } from 'wxt/browser';
-import type { AppConfig, SearchPreferences, Shortcut, SyncMode, Wallpaper } from '../domain/types';
+import type { AppConfig, SearchPreferences, Shortcut, ShortcutInput, SyncMode, Wallpaper } from '../domain/types';
 import type { DesktopCommit } from '../domain/desktop';
-import type { SystemWidgetId } from '../domain/widgets';
+import type { FolderShortcutDesktopDropPlan } from '../layout/folder-shortcut-desktop-drop';
+import type { ConfigurableWidgetId } from '../domain/widgets';
 import type { WidgetPosition } from '../domain/widgets';
 import type { Piece } from '../domain/pieces';
 import { appRepositories } from '../storage/repository';
+import type { AppStateSnapshot } from '../storage/ports';
 import { t } from '../browser/i18n';
 
 type AppState = {
@@ -20,13 +22,13 @@ type AppState = {
   addGroup(name: string, position?: WidgetPosition): Promise<void>;
   updateGroup(id: string, name: string, collapsed: boolean): Promise<void>;
   deleteGroup(id: string): Promise<void>;
-  addShortcut(input: Pick<Shortcut, 'name' | 'url' | 'groupId'> & { position?: WidgetPosition }): Promise<void>;
-  updateShortcut(id: string, input: Pick<Shortcut, 'name' | 'url' | 'groupId'>): Promise<void>;
+  addShortcut(input: ShortcutInput & { position?: WidgetPosition }): Promise<Shortcut>;
+  updateShortcut(id: string, input: ShortcutInput): Promise<void>;
   deleteShortcut(id: string): Promise<void>;
-  moveShortcut(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: DesktopCommit): Promise<void>;
+  moveShortcut(id: string, groupId: string, beforeId?: string, afterId?: string, position?: WidgetPosition, commit?: DesktopCommit | FolderShortcutDesktopDropPlan): Promise<void>;
   moveGroup(id: string, beforeId?: string, afterId?: string): Promise<void>;
   commitDesktopResult(commit: DesktopCommit): Promise<void>;
-  setWidgetEnabled(id: SystemWidgetId, enabled: boolean): Promise<void>;
+  setWidgetEnabled(id: ConfigurableWidgetId, enabled: boolean): Promise<void>;
   updateAppearance<K extends keyof AppConfig['appearance']>(key: K, value: AppConfig['appearance'][K]['value']): Promise<void>;
   previewAppearance<K extends 'blur' | 'search'>(key: K, value: K extends 'blur' ? number : SearchPreferences): void;
   clearAppearancePreview(key: 'blur' | 'search'): void;
@@ -35,8 +37,21 @@ type AppState = {
   setSyncMode(mode: SyncMode): Promise<void>;
 };
 
+let latestRefreshRequest = 0;
+
 async function reload(set: (state: Partial<AppState>) => void): Promise<void> {
-  set({ config: await appRepositories.config.getConfig(), pieces: await appRepositories.pieces.getPieces(), syncMode: await appRepositories.sync.getSyncMode(), error: undefined });
+  const request = ++latestRefreshRequest;
+  const snapshot = await appRepositories.config.getAppStateSnapshot();
+  // Repository notifications and mutation completion can overlap. Do not let
+  // an older read replace a newer, internally consistent desktop snapshot.
+  if (request !== latestRefreshRequest) return;
+  set({ ...snapshot, error: undefined });
+}
+
+function applyCommittedSnapshot(set: (state: Partial<AppState>) => void, snapshot: AppStateSnapshot): void {
+  // A command result is causally newer than any refresh already in flight.
+  latestRefreshRequest += 1;
+  set({ ...snapshot, error: undefined });
 }
 
 async function scheduleSync(): Promise<void> {
@@ -63,10 +78,23 @@ export const useAppStore = create<AppState>((set) => ({
   async addGroup(name, position) { await mutate(set, () => appRepositories.config.addGroup(name, position)); },
   async updateGroup(id, name, collapsed) { await mutate(set, () => appRepositories.config.updateGroup(id, { name, collapsed })); },
   async deleteGroup(id) { await mutate(set, () => appRepositories.config.deleteGroup(id)); },
-  async addShortcut(input) { await mutate(set, () => appRepositories.config.addShortcut(input)); },
+  async addShortcut(input) {
+    let shortcut: Shortcut | undefined;
+    await mutate(set, async () => { shortcut = await appRepositories.config.addShortcut(input); });
+    return shortcut!;
+  },
   async updateShortcut(id, input) { await mutate(set, () => appRepositories.config.updateShortcut(id, input)); },
   async deleteShortcut(id) { await mutate(set, () => appRepositories.config.deleteShortcut(id)); },
-  async moveShortcut(id, groupId, beforeId, afterId, position, commit) { await mutate(set, () => appRepositories.config.moveShortcut(id, groupId, beforeId, afterId, position, commit)); },
+  async moveShortcut(id, groupId, beforeId, afterId, position, commit) {
+    try {
+      const snapshot = await appRepositories.config.moveShortcut(id, groupId, beforeId, afterId, position, commit);
+      applyCommittedSnapshot(set, snapshot);
+    } catch (error) {
+      await reload(set);
+      throw error;
+    }
+    await scheduleSync();
+  },
   async moveGroup(id, beforeId, afterId) { await mutate(set, () => appRepositories.config.moveGroup(id, beforeId, afterId)); },
   async commitDesktopResult(commit) { await mutate(set, () => appRepositories.config.commitDesktopResult(commit)); },
   async setWidgetEnabled(id, enabled) { await mutate(set, () => appRepositories.config.setWidgetEnabled(id, enabled)); },
