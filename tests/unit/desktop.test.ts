@@ -3,7 +3,7 @@ import { createInitialConfig } from '../../core/domain/defaults';
 import { buildDesktopSnapshot, centeredGridSpan, desktopItems, desktopPlacements, migrateDesktopPositions, overlaps, type DesktopItem } from '../../core/domain/desktop';
 import { DEFAULT_GROUP_ID, type Shortcut } from '../../core/domain/types';
 import type { WidgetPosition } from '../../core/domain/widgets';
-import { placeDesktopNode, placeNewDesktopNode, repairDesktopSnapshot } from '../../core/layout/desktop-layout-engine';
+import { placeDesktopNode, placeNewDesktopNode, repairDesktopSnapshot } from '../../core/layout/piece-desktop-adapter';
 
 const revision = { counter: 1, deviceId: 'test' };
 const position = (column: number, row = 20) => ({ column, row, width: 4 as const, height: 3 as const, gridVersion: 3 as const });
@@ -60,7 +60,9 @@ describe('desktop aggregate and layout engine', () => {
   it('does not expand a push into an unrelated add tile', () => {
     const config = configWithShortcuts([shortcut('a', position(0, 0))]);
     config.groups.push({ id: 'folder', name: 'Folder', collapsed: false, sortKey: 'z', revision, position: position(4, 0) });
-    config.appearance.widgetLayout.value.find((item) => item.id === 'addShortcut')!.position = position(8, 0);
+    const addShortcut = config.appearance.widgetLayout.value.find((item) => item.id === 'addShortcut')!;
+    addShortcut.enabled = true;
+    addShortcut.position = position(8, 0);
     const result = placeDesktopNode(buildDesktopSnapshot(config), 'shortcut:a', position(4, 0), { x: 1, y: 0 });
     const add = result.items.find((item) => item.key === 'add-shortcut');
     expect(add?.position).toEqual(position(8, 0));
@@ -68,7 +70,9 @@ describe('desktop aggregate and layout engine', () => {
   });
 
   it('creates a shortcut at the add tile and moves the add tile away', () => {
-    const snapshot = buildDesktopSnapshot(createInitialConfig({ deviceId: 'test', counter: 0, epoch: 0 }));
+    const config = createInitialConfig({ deviceId: 'test', counter: 0, epoch: 0 });
+    config.appearance.widgetLayout.value.find((item) => item.id === 'addShortcut')!.enabled = true;
+    const snapshot = buildDesktopSnapshot(config);
     const add = desktopItems(snapshot).find((item) => item.kind === 'add-shortcut')!;
     const entity = shortcut('new', add.position);
     const result = placeNewDesktopNode(snapshot, {
