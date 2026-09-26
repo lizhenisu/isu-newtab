@@ -1,6 +1,6 @@
 # Isu 新标签页隐私政策
 
-最后更新日期：2026 年 8 月 23 日
+最后更新日期：2026 年 9 月 26 日
 
 Isu 新标签页（以下简称“Isu”或“本扩展”）是一款用于自定义 Chrome 新标签页的扩展。本政策说明 Isu 如何处理用户数据，以及用户可以如何控制这些数据。
 
@@ -10,7 +10,7 @@ Isu 新标签页（以下简称“Isu”或“本扩展”）是一款用于自�
 
 Isu 可以在浏览器本地保存时钟、搜索框、便签、专注计时器、快捷方式、文件夹、布局、主题和壁纸设置。这些数据用于显示和恢复用户自定义的新标签页。
 
-用户主动启用 Chrome Sync 时，适合跨设备使用的轻量配置（例如快捷方式、文件夹、桌面位置、组件设置和在线壁纸网址）可能由 Chrome Sync 在用户的设备之间同步。
+用户主动启用 Chrome Sync 或 Google Drive 同步时，适合跨设备使用的轻量配置（例如快捷方式、文件夹、桌面位置、组件设置和在线壁纸网址）可能在用户的设备之间同步。Google Drive 同步只写入 Isu 专属且不可见的 Google Drive 应用数据区（`appDataFolder`），不会读取、列出或修改用户普通 Drive 文件。
 
 以下内容不通过 Isu 的同步功能同步：
 
@@ -89,8 +89,9 @@ Chrome 历史本身由 Chrome 管理。Isu 不提供删除 Chrome 历史的功�
 - `contextMenus`：在 Chrome 原生右键菜单中提供 Isu 操作；
 - `geolocation`：仅在用户主动启用天气组件或点击位置重试时读取当前位置，用于向 Open-Meteo 请求天气；
 - `alarms`：仅用于在线随机壁纸的本机定时切换；
+- `identity`：仅在用户点击“连接 Google Drive”后获取 Google Drive 应用数据区的 OAuth 访问令牌；令牌由 Chrome 管理，不由 Isu 保存；
 - `history`（可选）：仅在用户主动授权后读取 Chrome 浏览历史中的搜索结果页；
-- Wallhaven、Unsplash、Google Suggest、Bing、Open-Meteo、OpenStreetMap Nominatim、一言和 ZenQuotes 的网站权限：分别用于壁纸搜索、壁纸显示/跟踪、搜索建议、天气、城市名称和每日一语。
+- Wallhaven、Unsplash、Google Suggest、Bing、Google Drive API、Open-Meteo、OpenStreetMap Nominatim、一言和 ZenQuotes 的网站权限：分别用于壁纸搜索、壁纸显示/跟踪、搜索建议、私密同步、天气、城市名称和每日一语。
 
 ## 五、数据安全
 
@@ -102,6 +103,7 @@ Isu 可能连接以下第三方服务：
 
 - [Google Suggest](https://suggestqueries.google.com/)
 - [Bing](https://www.bing.com/)
+- [Google Drive](https://www.google.com/drive/)
 - [Wallhaven](https://wallhaven.cc/)
 - [Unsplash](https://unsplash.com/)
 - [Open-Meteo](https://open-meteo.com/)
