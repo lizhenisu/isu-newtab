@@ -6,6 +6,7 @@ import chineseHongKong from '../../public/_locales/zh_HK/messages.json';
 import chineseTaiwan from '../../public/_locales/zh_TW/messages.json';
 import japanese from '../../public/_locales/ja/messages.json';
 import korean from '../../public/_locales/ko/messages.json';
+import { currentBrowserTarget, type BrowserTarget } from './browser-target';
 
 type Messages = Record<string, { message: string }>;
 type ResolvedLanguage = Exclude<AppLanguage, 'system'>;
@@ -20,7 +21,23 @@ const dictionaries: Record<ResolvedLanguage, Messages> = {
 };
 let language: AppLanguage = 'system';
 
+const edgeMessageKeys: Record<string, string> = {
+  chromeSync: 'edgeSync',
+  syncWarning: 'edgeSyncWarning',
+  chromeSearchHistory: 'edgeSearchHistory',
+  enableChromeSearchHistory: 'enableEdgeSearchHistory',
+  chromeSearchHistoryPrivacy: 'edgeSearchHistoryPrivacy',
+  chromeHistoryPermissionDenied: 'edgeHistoryPermissionDenied',
+  voiceRecognitionPermissionDenied: 'edgeVoiceRecognitionPermissionDenied',
+  weatherLocationDENIED: 'edgeWeatherLocationDenied',
+};
+
+export function messageKeyForBrowser(key: string, target: BrowserTarget = currentBrowserTarget()): string {
+  return target === 'edge' ? edgeMessageKeys[key] ?? key : key;
+}
+
 export function t(key: string): string {
+  key = messageKeyForBrowser(key);
   if (typeof browser.i18n.getUILanguage !== 'function') {
     return browser.i18n.getMessage(key as Parameters<typeof browser.i18n.getMessage>[0]) || key;
   }
