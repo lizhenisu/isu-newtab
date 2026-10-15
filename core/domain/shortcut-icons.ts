@@ -1,4 +1,5 @@
 import { faviconUrl } from './url';
+import { currentBrowserTarget, type BrowserTarget } from '../browser/browser-target';
 
 export const SHORTCUT_ICON_MIN_SIZE = 64;
 export const SHORTCUT_ICON_MAX_BYTES = 1024 * 1024;
@@ -18,6 +19,10 @@ export function shortcutIconAssetKey(shortcutId: string): string {
 
 export function nativeShortcutIconUrl(pageUrl: string): string {
   return faviconUrl(pageUrl, 128);
+}
+
+export function initialShortcutIconUrl(pageUrl: string, target: BrowserTarget = currentBrowserTarget()): string {
+  return target === 'edge' ? shortcutIconSources(pageUrl)[0]!.url : nativeShortcutIconUrl(pageUrl);
 }
 
 /** Validates a user-selected icon before it is persisted in the local asset cache. */
