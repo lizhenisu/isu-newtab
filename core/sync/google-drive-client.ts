@@ -1,4 +1,4 @@
-import { GoogleDriveTokenProvider } from './google-drive-auth';
+import { createGoogleDriveTokenProvider, type GoogleDriveTokenProvider } from './google-drive-auth';
 
 export type GoogleDriveFile = {
   id: string;
@@ -33,7 +33,7 @@ const FILE_FIELDS = 'id,name,mimeType,appProperties,modifiedTime';
 /** Minimal Drive v3 transport for Isu's private appDataFolder records. */
 export class GoogleDriveRestClient implements GoogleDriveClient {
   constructor(
-    private readonly tokens = new GoogleDriveTokenProvider(),
+    private readonly tokens: GoogleDriveTokenProvider = createGoogleDriveTokenProvider(),
     // Service-worker fetch is a Web API method. Keep its global receiver so
     // Chrome cannot reject the request when the transport calls it indirectly.
     private readonly request: typeof fetch = globalThis.fetch.bind(globalThis),
